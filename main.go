@@ -214,8 +214,8 @@ func (aa *airConAppliance) changeTargetHeatingCoolingState(s int) {
 	defer cancel()
 
 	if m, b, ok := aa.fromTargetHeatingCoolingState(s); ok {
-		// 電源を切る場合にモードは変更しない。
-		if m != "" {
+		// 電源を切る場合は現在のモードを維持する。
+		if b == natureremo.ButtonPowerOn {
 			aa.appliance.AirConSettings.OperationMode = m
 		}
 		aa.appliance.AirConSettings.Button = b
@@ -289,7 +289,6 @@ func (aa *airConAppliance) toTargetHeatingCoolingState(m natureremo.OperationMod
 func (aa *airConAppliance) fromTargetHeatingCoolingState(s int) (natureremo.OperationMode, natureremo.Button, bool) {
 	switch s {
 	case 0:
-		// 電源を切る場合にモードは変更しない。
 		return "", natureremo.ButtonPowerOff, true
 	case 1:
 		return natureremo.OperationModeWarm, natureremo.ButtonPowerOn, true
