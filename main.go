@@ -169,6 +169,7 @@ func newAirConAppliance(id uint64, cli *natureremo.Client, ctx context.Context, 
 	if s, ok := aa.toTargetHeatingCoolingState(aa.appliance.AirConSettings.OperationMode, aa.appliance.AirConSettings.Button); ok {
 		aa.thermostat.TargetHeatingCoolingState.SetValue(s)
 	}
+	aa.thermostat.TargetHeatingCoolingState.OnValueRemoteUpdate(aa.changeTargetHeatingCoolingState)
 	// エアコンの温度計の値を取得する方法は無いのでNatureRemoの温度計の値をエアコンの温度と見做す。
 	if t, ok := aa.toCurrentTemperature(aa.device.NewestEvents[natureremo.SensorTypeTemperature].Value); ok {
 		aa.thermostat.CurrentTemperature.SetValue(t)
