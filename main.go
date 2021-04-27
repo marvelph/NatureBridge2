@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"io/ioutil"
 	"log"
+	"math"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -46,46 +48,314 @@ type natureRemo struct {
 
 func newNatureRemo(id uint64, cli *natureremo.Client, ctx context.Context, d *natureremo.Device) *natureRemo {
 	nr := natureRemo{}
-	nr.Accessory = accessory.New(accessory.Info{Name: d.Name, Manufacturer: "Nature", FirmwareRevision: d.FirmwareVersion, ID: id}, accessory.TypeSensor)
-
-	nr.temperatureSensor = service.NewTemperatureSensor()
-	nr.temperatureSensor.CurrentTemperature.SetValue(d.NewestEvents[natureremo.SensorTypeTemperature].Value)
-	nr.AddService(nr.temperatureSensor.Service)
-
-	if v, ok := d.NewestEvents[natureremo.SensorTypeHumidity]; ok {
-		nr.humiditySensor = service.NewHumiditySensor()
-		nr.humiditySensor.CurrentRelativeHumidity.SetValue(v.Value)
-		nr.AddService(nr.humiditySensor.Service)
-	}
-
-	if v, ok := d.NewestEvents[natureremo.SensortypeIllumination]; ok {
-		nr.lightSensor = service.NewLightSensor()
-		nr.lightSensor.CurrentAmbientLightLevel.SetValue(v.Value)
-		nr.AddService(nr.lightSensor.Service)
-	}
-
 	nr.client = cli
 	nr.context = ctx
 	nr.device = d
+
+	nr.Accessory = accessory.New(
+		accessory.Info{
+			Name:             nr.device.Name,
+			Manufacturer:     "Nature",
+			FirmwareRevision: nr.device.FirmwareVersion,
+			ID:               id,
+		},
+		accessory.TypeSensor,
+	)
+
+	nr.temperatureSensor = service.NewTemperatureSensor()
+	if t, ok := nr.toCurrentTemperature(nr.device.NewestEvents[natureremo.SensorTypeTemperature].Value); ok {
+		nr.temperatureSensor.CurrentTemperature.SetValue(t)
+	}
+	nr.AddService(nr.temperatureSensor.Service)
+
+	if e, ok := nr.device.NewestEvents[natureremo.SensorTypeHumidity]; ok {
+		nr.humiditySensor = service.NewHumiditySensor()
+		if h, ok := nr.toCurrentRelativeHumidity(e.Value); ok {
+			nr.humiditySensor.CurrentRelativeHumidity.SetValue(h)
+		}
+		nr.AddService(nr.humiditySensor.Service)
+	}
+
+	if e, ok := nr.device.NewestEvents[natureremo.SensortypeIllumination]; ok {
+		nr.lightSensor = service.NewLightSensor()
+		if l, ok := nr.toCurrentAmbientLightLevel(e.Value); ok {
+			nr.lightSensor.CurrentAmbientLightLevel.SetValue(l)
+		}
+		nr.AddService(nr.lightSensor.Service)
+	}
+
 	return &nr
 }
 
 func (nr *natureRemo) update(d *natureremo.Device) {
 	nr.device = d
 
-	nr.temperatureSensor.CurrentTemperature.SetValue(d.NewestEvents[natureremo.SensorTypeTemperature].Value)
-
-	if v, ok := d.NewestEvents[natureremo.SensorTypeHumidity]; nr.humiditySensor != nil && ok {
-		nr.humiditySensor.CurrentRelativeHumidity.SetValue(v.Value)
+	if t, ok := nr.toCurrentTemperature(nr.device.NewestEvents[natureremo.SensorTypeTemperature].Value); ok {
+		nr.temperatureSensor.CurrentTemperature.SetValue(t)
 	}
 
-	if v, ok := d.NewestEvents[natureremo.SensortypeIllumination]; nr.lightSensor != nil && ok {
-		nr.lightSensor.CurrentAmbientLightLevel.SetValue(v.Value)
+	if e, ok := nr.device.NewestEvents[natureremo.SensorTypeHumidity]; nr.humiditySensor != nil && ok {
+		if h, ok := nr.toCurrentRelativeHumidity(e.Value); ok {
+			nr.humiditySensor.CurrentRelativeHumidity.SetValue(h)
+		}
 	}
+
+	if e, ok := nr.device.NewestEvents[natureremo.SensortypeIllumination]; nr.lightSensor != nil && ok {
+		if l, ok := nr.toCurrentAmbientLightLevel(e.Value); ok {
+			nr.lightSensor.CurrentAmbientLightLevel.SetValue(l)
+		}
+	}
+}
+
+func (nr *natureRemo) toCurrentTemperature(t float64) (float64, bool) {
+	if t < 0.0 || 100.0 < t {
+		return 0.0, false
+	}
+
+	return math.Round(t*10.0) / 10.0, true
+}
+
+func (nr *natureRemo) toCurrentRelativeHumidity(h float64) (float64, bool) {
+	if h < 0.0 || 100.0 < h {
+		return 0.0, false
+	}
+
+	return math.Round(h), true
+}
+
+func (nr *natureRemo) toCurrentAmbientLightLevel(l float64) (float64, bool) {
+	if l < 0.0001 || 100000 < l {
+		return 0.0, false
+	}
+
+	return l, true
 }
 
 type applianceUpdater interface {
 	update(d *natureremo.Device, a *natureremo.Appliance)
+}
+
+type airConAppliance struct {
+	*accessory.Accessory
+	thermostat *service.Thermostat
+	client     *natureremo.Client
+	context    context.Context
+	device     *natureremo.Device
+	appliance  *natureremo.Appliance
+}
+
+func newAirConAppliance(id uint64, cli *natureremo.Client, ctx context.Context, d *natureremo.Device, a *natureremo.Appliance) *airConAppliance {
+	aa := airConAppliance{}
+	aa.client = cli
+	aa.context = ctx
+	aa.device = d
+	aa.appliance = a
+
+	aa.Accessory = accessory.New(
+		accessory.Info{
+			Name:         aa.appliance.Nickname,
+			Manufacturer: aa.appliance.Model.Manufacturer,
+			Model:        aa.appliance.Model.Name,
+			ID:           id,
+		},
+		accessory.TypeAirConditioner,
+	)
+
+	aa.thermostat = service.NewThermostat()
+	// エアコンの現在のモードを取得する方法は無いのでリモコンに対する最後の操作を現在のモードと見做す。
+	if s, ok := aa.toCurrentHeatingCoolingState(aa.appliance.AirConSettings.OperationMode, aa.appliance.AirConSettings.Button); ok {
+		aa.thermostat.CurrentHeatingCoolingState.SetValue(s)
+	}
+	if s, ok := aa.toTargetHeatingCoolingState(aa.appliance.AirConSettings.OperationMode, aa.appliance.AirConSettings.Button); ok {
+		aa.thermostat.TargetHeatingCoolingState.SetValue(s)
+	}
+	// エアコンの温度計の値を取得する方法は無いのでNatureRemoの温度計の値をエアコンの温度と見做す。
+	if t, ok := aa.toCurrentTemperature(aa.device.NewestEvents[natureremo.SensorTypeTemperature].Value); ok {
+		aa.thermostat.CurrentTemperature.SetValue(t)
+	}
+	if t, ok := aa.toTargetTemperature(aa.appliance.AirConSettings.Temperature); ok {
+		aa.thermostat.TargetTemperature.SetValue(t)
+	}
+	aa.thermostat.TargetTemperature.OnValueRemoteUpdate(aa.changeTargetTemperature)
+	if u, ok := aa.toTemperatureDisplayUnits(aa.appliance.AirCon.TemperatureUnit); ok {
+		aa.thermostat.TemperatureDisplayUnits.SetValue(u)
+	}
+	// エアコンの表示単位を変更する方法は無いので書き込みには対応できない。
+	aa.AddService(aa.thermostat.Service)
+
+	return &aa
+}
+
+func (aa *airConAppliance) update(d *natureremo.Device, a *natureremo.Appliance) {
+	aa.device = d
+	aa.appliance = a
+
+	// エアコンの現在のモードを取得する方法は無いのでリモコンに対する最後の操作を現在のモードと見做す。
+	if s, ok := aa.toCurrentHeatingCoolingState(aa.appliance.AirConSettings.OperationMode, aa.appliance.AirConSettings.Button); ok {
+		aa.thermostat.CurrentHeatingCoolingState.SetValue(s)
+	}
+	if s, ok := aa.toTargetHeatingCoolingState(aa.appliance.AirConSettings.OperationMode, aa.appliance.AirConSettings.Button); ok {
+		aa.thermostat.TargetHeatingCoolingState.SetValue(s)
+	}
+	// エアコンの温度計の値を取得する方法は無いのでNatureRemoの温度計の値をエアコンの温度と見做す。
+	if t, ok := aa.toCurrentTemperature(aa.device.NewestEvents[natureremo.SensorTypeTemperature].Value); ok {
+		aa.thermostat.CurrentTemperature.SetValue(t)
+	}
+	if t, ok := aa.toTargetTemperature(aa.appliance.AirConSettings.Temperature); ok {
+		aa.thermostat.TargetTemperature.SetValue(t)
+	}
+	if u, ok := aa.toTemperatureDisplayUnits(aa.appliance.AirCon.TemperatureUnit); ok {
+		aa.thermostat.TemperatureDisplayUnits.SetValue(u)
+	}
+}
+
+func (aa *airConAppliance) changeTargetHeatingCoolingState(s int) {
+	ctx, cancel := context.WithTimeout(aa.context, timeout)
+	defer cancel()
+
+	if m, b, ok := aa.fromTargetHeatingCoolingState(s); ok {
+		// 電源を切る場合にモードは変更しない。
+		if m != "" {
+			aa.appliance.AirConSettings.OperationMode = m
+		}
+		aa.appliance.AirConSettings.Button = b
+		err := aa.client.ApplianceService.UpdateAirConSettings(ctx, aa.appliance, aa.appliance.AirConSettings)
+		if err != nil {
+			log.Print(err)
+		}
+	}
+}
+
+func (aa *airConAppliance) changeTargetTemperature(t float64) {
+	ctx, cancel := context.WithTimeout(aa.context, timeout)
+	defer cancel()
+
+	if t, ok := aa.fromTargetTemperature(t); ok {
+		aa.appliance.AirConSettings.Temperature = t
+		err := aa.client.ApplianceService.UpdateAirConSettings(ctx, aa.appliance, aa.appliance.AirConSettings)
+		if err != nil {
+			log.Print(err)
+		}
+	}
+}
+
+func (aa *airConAppliance) toCurrentHeatingCoolingState(m natureremo.OperationMode, b natureremo.Button) (int, bool) {
+	switch b {
+	case natureremo.ButtonPowerOn:
+		switch m {
+		case natureremo.OperationModeAuto:
+			// 自動運転に対する現在のモードを判定する方法はない。
+			return 0, false
+		case natureremo.OperationModeCool:
+			return 2, true
+		case natureremo.OperationModeWarm:
+			return 1, true
+		case natureremo.OperationModeDry:
+			// モードが除湿の場合は処理できない。
+			return 0, false
+		case natureremo.OperationModeBlow:
+			// モードが送風の場合は処理できない。
+			return 0, false
+		}
+	case natureremo.ButtonPowerOff:
+		return 0, true
+	}
+	return 0, false // ここに到達する事はない。
+}
+
+func (aa *airConAppliance) toTargetHeatingCoolingState(m natureremo.OperationMode, b natureremo.Button) (int, bool) {
+	switch b {
+	case natureremo.ButtonPowerOn:
+		switch m {
+		case natureremo.OperationModeAuto:
+			return 3, true
+		case natureremo.OperationModeCool:
+			return 2, true
+		case natureremo.OperationModeWarm:
+			return 1, true
+		case natureremo.OperationModeDry:
+			// モードが除湿の場合は処理できない。
+			return 0, false
+		case natureremo.OperationModeBlow:
+			// モードが送風の場合は処理できない。
+			return 0, false
+		}
+	case natureremo.ButtonPowerOff:
+		return 0, true
+	}
+	return 0, false // ここに到達する事はない。
+}
+
+func (aa *airConAppliance) fromTargetHeatingCoolingState(s int) (natureremo.OperationMode, natureremo.Button, bool) {
+	switch s {
+	case 0:
+		// 電源を切る場合にモードは変更しない。
+		return "", natureremo.ButtonPowerOff, true
+	case 1:
+		return natureremo.OperationModeWarm, natureremo.ButtonPowerOn, true
+	case 2:
+		return natureremo.OperationModeCool, natureremo.ButtonPowerOn, true
+	case 3:
+		return natureremo.OperationModeAuto, natureremo.ButtonPowerOn, true
+	}
+	return "", "", false
+}
+
+func (aa *airConAppliance) toCurrentTemperature(t float64) (float64, bool) {
+	if t < 0.0 || 100.0 < t {
+		return 0.0, false
+	}
+
+	return math.Round(t*10.0) / 10.0, true
+}
+
+func (aa *airConAppliance) toTargetTemperature(t string) (float64, bool) {
+	v, err := strconv.ParseFloat(t, 64)
+	if err != nil {
+		return 0.0, false
+	}
+
+	if v < 10.0 || 38.0 < v {
+		return 0.0, false
+	}
+
+	switch aa.appliance.AirCon.TemperatureUnit {
+	case natureremo.TemperatureUnitAuto:
+		// 温度の単位が自動の場合は処理できない。
+		return 0.0, false
+	case natureremo.TemperatureUnitFahrenheit:
+		return math.Round((v-32.0)*5.0/9.0*10.0) / 10.0, true
+	case natureremo.TemperatureUnitCelsius:
+		return math.Round(v*10.0) / 10.0, true
+	}
+	return 0.0, false // ここに到達する事はない。
+}
+
+func (aa *airConAppliance) fromTargetTemperature(t float64) (string, bool) {
+	switch aa.appliance.AirCon.TemperatureUnit {
+	case natureremo.TemperatureUnitAuto:
+		// 温度の単位が自動の場合は処理できない。
+		return "", false
+	case natureremo.TemperatureUnitFahrenheit:
+		t = t*9.0/5.0 + 32.0
+	}
+
+	// TODO: エアコンは設定可能な温度の一覧を提供しているのでその値に丸める必要がある。
+	// TODO: 設定可能な温度から1度以上外れている場合は失敗させる必要がある。
+	return strconv.FormatFloat(t, 'f', 1, 64), true
+}
+
+func (aa *airConAppliance) toTemperatureDisplayUnits(u natureremo.TemperatureUnit) (int, bool) {
+	switch u {
+	case natureremo.TemperatureUnitAuto:
+		// 温度の単位が自動の場合は処理できない。
+		return 0, false
+	case natureremo.TemperatureUnitFahrenheit:
+		return 1, true
+	case natureremo.TemperatureUnitCelsius:
+		return 0, true
+	}
+	return 0, false // ここに到達する事はない。
 }
 
 type lightAppliance struct {
@@ -99,15 +369,24 @@ type lightAppliance struct {
 
 func newLightAppliance(id uint64, cli *natureremo.Client, ctx context.Context, d *natureremo.Device, a *natureremo.Appliance) *lightAppliance {
 	la := lightAppliance{}
-	la.Accessory = accessory.New(accessory.Info{Name: a.Nickname, Manufacturer: a.Model.Manufacturer, Model: a.Model.Name, ID: id}, accessory.TypeLightbulb)
 	la.client = cli
 	la.context = ctx
 	la.device = d
 	la.appliance = a
 
+	la.Accessory = accessory.New(
+		accessory.Info{
+			Name:         la.appliance.Nickname,
+			Manufacturer: la.appliance.Model.Manufacturer,
+			Model:        la.appliance.Model.Name,
+			ID:           id,
+		},
+		accessory.TypeLightbulb,
+	)
+
 	la.lightbulb = service.NewLightbulb()
-	la.lightbulb.On.SetValue(la.toHomeKitOn(a.Light.State.Power))
-	la.lightbulb.On.OnValueRemoteUpdate(la.onValueRemoteUpdate)
+	la.lightbulb.On.SetValue(la.toOn(la.appliance.Light.State.Power))
+	la.lightbulb.On.OnValueRemoteUpdate(la.changeOn)
 	la.AddService(la.lightbulb.Service)
 
 	return &la
@@ -117,25 +396,25 @@ func (la *lightAppliance) update(d *natureremo.Device, a *natureremo.Appliance) 
 	la.device = d
 	la.appliance = a
 
-	la.lightbulb.On.SetValue(la.toHomeKitOn(a.Light.State.Power))
+	la.lightbulb.On.SetValue(la.toOn(la.appliance.Light.State.Power))
 }
 
-func (la *lightAppliance) onValueRemoteUpdate(on bool) {
+func (la *lightAppliance) changeOn(o bool) {
 	ctx, cancel := context.WithTimeout(la.context, timeout)
 	defer cancel()
 
-	_, err := la.client.ApplianceService.SendLightSignal(ctx, la.appliance, la.toNatureOn(on))
+	_, err := la.client.ApplianceService.SendLightSignal(ctx, la.appliance, la.fromOn(o))
 	if err != nil {
 		log.Print(err)
 	}
 }
 
-func (la *lightAppliance) toHomeKitOn(v string) bool {
-	return v == "on"
+func (la *lightAppliance) toOn(o string) bool {
+	return o == "on"
 }
 
-func (la *lightAppliance) toNatureOn(v bool) string {
-	if v {
+func (la *lightAppliance) fromOn(o bool) string {
+	if o {
 		return "on"
 	} else {
 		return "off"
@@ -221,6 +500,8 @@ func (app *application) wasChanged(ds []*natureremo.Device, as []*natureremo.App
 	ts := make([]*natureremo.Appliance, 0, len(as))
 	for _, a := range as {
 		switch a.Type {
+		case natureremo.ApplianceTypeAirCon:
+			ts = append(ts, a)
 		case natureremo.ApplianceTypeLight:
 			ts = append(ts, a)
 		}
@@ -272,6 +553,10 @@ func (app *application) build(ds []*natureremo.Device, as []*natureremo.Applianc
 
 	for _, a := range as {
 		switch a.Type {
+		case natureremo.ApplianceTypeAirCon:
+			aa := newAirConAppliance(app.getAid(a.ID), app.client, app.context, ts[a.Device.ID], a)
+			app.appliances[a.ID] = aa
+			accs = append(accs, aa.Accessory)
 		case natureremo.ApplianceTypeLight:
 			la := newLightAppliance(app.getAid(a.ID), app.client, app.context, ts[a.Device.ID], a)
 			app.appliances[a.ID] = la
