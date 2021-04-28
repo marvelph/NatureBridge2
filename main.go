@@ -289,7 +289,7 @@ func (aa *airConAppliance) toOperationModeAndButton(s int) (natureremo.Operation
 	switch s {
 	case 0:
 		// 電源を切る場合は現在のモードを維持する。
-		return aa.appliance.AirConSettings.OperationMode, natureremo.ButtonPowerOff, false
+		return aa.appliance.AirConSettings.OperationMode, natureremo.ButtonPowerOff, true
 	case 1:
 		return natureremo.OperationModeWarm, natureremo.ButtonPowerOn, true
 	case 2:
