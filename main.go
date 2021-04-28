@@ -214,11 +214,8 @@ func (aa *airConAppliance) changeTargetHeatingCoolingState(s int) {
 	ctx, cancel := context.WithTimeout(aa.context, timeout)
 	defer cancel()
 
-	if m, b, ok := aa.fromTargetHeatingCoolingState(s); ok {
-		// 電源を切る場合は現在のモードを維持する。
-		if b == natureremo.ButtonPowerOn {
-			aa.appliance.AirConSettings.OperationMode = m
-		}
+	if m, b, ok := aa.toOperationModeAndButton(s); ok {
+		aa.appliance.AirConSettings.OperationMode = m
 		aa.appliance.AirConSettings.Button = b
 		err := aa.client.ApplianceService.UpdateAirConSettings(ctx, aa.appliance, aa.appliance.AirConSettings)
 		if err != nil {
@@ -231,7 +228,7 @@ func (aa *airConAppliance) changeTargetTemperature(t float64) {
 	ctx, cancel := context.WithTimeout(aa.context, timeout)
 	defer cancel()
 
-	if t, ok := aa.fromTargetTemperature(t); ok {
+	if t, ok := aa.toTemperature(t); ok {
 		aa.appliance.AirConSettings.Temperature = t
 		err := aa.client.ApplianceService.UpdateAirConSettings(ctx, aa.appliance, aa.appliance.AirConSettings)
 		if err != nil {
@@ -287,10 +284,12 @@ func (aa *airConAppliance) toTargetHeatingCoolingState(m natureremo.OperationMod
 	return 0, false // ここに到達する事はない。
 }
 
-func (aa *airConAppliance) fromTargetHeatingCoolingState(s int) (natureremo.OperationMode, natureremo.Button, bool) {
+func (aa *airConAppliance) toOperationModeAndButton(s int) (natureremo.OperationMode, natureremo.Button, bool) {
+	// TODO: エアコンは設定可能なモードの一覧を提供しているのでその値を外れる場合は失敗させる必要がある。
 	switch s {
 	case 0:
-		return "", natureremo.ButtonPowerOff, true
+		// 電源を切る場合は現在のモードを維持する。
+		return aa.appliance.AirConSettings.OperationMode, natureremo.ButtonPowerOff, false
 	case 1:
 		return natureremo.OperationModeWarm, natureremo.ButtonPowerOn, true
 	case 2:
@@ -331,7 +330,7 @@ func (aa *airConAppliance) toTargetTemperature(t string) (float64, bool) {
 	return 0.0, false // ここに到達する事はない。
 }
 
-func (aa *airConAppliance) fromTargetTemperature(t float64) (string, bool) {
+func (aa *airConAppliance) toTemperature(t float64) (string, bool) {
 	switch aa.appliance.AirCon.TemperatureUnit {
 	case natureremo.TemperatureUnitAuto:
 		// 温度の単位が自動の場合は処理できない。
@@ -340,8 +339,7 @@ func (aa *airConAppliance) fromTargetTemperature(t float64) (string, bool) {
 		t = t*9.0/5.0 + 32.0
 	}
 
-	// TODO: エアコンは設定可能な温度の一覧を提供しているのでその値に丸める必要がある。
-	// TODO: 設定可能な温度から1度以上外れている場合は失敗させる必要がある。
+	// TODO: エアコンは設定可能な温度の一覧を提供しているのでその値を外れる場合は失敗させる必要がある。
 	return strconv.FormatFloat(t, 'f', 1, 64), true
 }
 
@@ -385,7 +383,9 @@ func newLightAppliance(id uint64, cli *natureremo.Client, ctx context.Context, d
 	)
 
 	la.lightbulb = service.NewLightbulb()
-	la.lightbulb.On.SetValue(la.toOn(la.appliance.Light.State.Power))
+	if o, ok := la.toOn(la.appliance.Light.State.Power); ok {
+		la.lightbulb.On.SetValue(o)
+	}
 	la.lightbulb.On.OnValueRemoteUpdate(la.changeOn)
 	la.AddService(la.lightbulb.Service)
 
@@ -396,24 +396,32 @@ func (la *lightAppliance) update(d *natureremo.Device, a *natureremo.Appliance) 
 	la.device = d
 	la.appliance = a
 
-	la.lightbulb.On.SetValue(la.toOn(la.appliance.Light.State.Power))
+	if o, ok := la.toOn(la.appliance.Light.State.Power); ok {
+		la.lightbulb.On.SetValue(o)
+	}
 }
 
 func (la *lightAppliance) changeOn(o bool) {
 	ctx, cancel := context.WithTimeout(la.context, timeout)
 	defer cancel()
 
-	_, err := la.client.ApplianceService.SendLightSignal(ctx, la.appliance, la.fromOn(o))
+	_, err := la.client.ApplianceService.SendLightSignal(ctx, la.appliance, la.toPower(o))
 	if err != nil {
 		log.Print(err)
 	}
 }
 
-func (la *lightAppliance) toOn(o string) bool {
-	return o == "on"
+func (la *lightAppliance) toOn(o string) (bool, bool) {
+	switch o {
+	case "on":
+		return true, true
+	case "off":
+		return false, true
+	}
+	return false, false
 }
 
-func (la *lightAppliance) fromOn(o bool) string {
+func (la *lightAppliance) toPower(o bool) string {
 	if o {
 		return "on"
 	} else {
