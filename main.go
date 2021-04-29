@@ -183,17 +183,25 @@ func newAirConAppliance(id uint64, cli *natureremo.Client, ctx context.Context, 
 	if sta, ok := air.getCurrentHeatingCoolingState(); ok {
 		air.thermostat.CurrentHeatingCoolingState.SetValue(sta)
 	}
+
 	if sta, ok := air.getTargetHeatingCoolingState(); ok {
 		air.thermostat.TargetHeatingCoolingState.SetValue(sta)
 	}
+
 	air.thermostat.TargetHeatingCoolingState.OnValueRemoteUpdate(air.changeTargetHeatingCoolingState)
 	if tmp, ok := air.getCurrentTemperature(); ok {
 		air.thermostat.CurrentTemperature.SetValue(tmp)
 	}
+
 	if tmp, ok := air.getTargetTemperature(); ok {
 		air.thermostat.TargetTemperature.SetValue(tmp)
 	}
+	min, max, stp := air.getTargetTemperatureMinAndMaxAndStep()
+	air.thermostat.TargetTemperature.SetMinValue(min)
+	air.thermostat.TargetTemperature.SetMaxValue(max)
+	air.thermostat.TargetTemperature.SetStepValue(stp)
 	air.thermostat.TargetTemperature.OnValueRemoteUpdate(air.changeTargetTemperature)
+
 	if uni, ok := air.getTemperatureDisplayUnits(); ok {
 		air.thermostat.TemperatureDisplayUnits.SetValue(uni)
 	}
@@ -218,9 +226,6 @@ func (air *airConAppliance) update(dev *natureremo.Device, ali *natureremo.Appli
 	}
 	if tmp, ok := air.getTargetTemperature(); ok {
 		air.thermostat.TargetTemperature.SetValue(tmp)
-	}
-	if uni, ok := air.getTemperatureDisplayUnits(); ok {
-		air.thermostat.TemperatureDisplayUnits.SetValue(uni)
 	}
 }
 
@@ -288,10 +293,10 @@ func (air *airConAppliance) getTargetHeatingCoolingState() (int, bool) {
 		case natureremo.OperationModeWarm:
 			return 1, true
 		case natureremo.OperationModeDry:
-			// モードが除湿の場合は処理できない。
+			// モードが除湿の場合は設定できない。
 			return 0, false
 		case natureremo.OperationModeBlow:
-			// モードが送風の場合は処理できない。
+			// モードが送風の場合は設定できない。
 			return 0, false
 		}
 	case natureremo.ButtonPowerOff:
@@ -346,42 +351,42 @@ func (air *airConAppliance) getTargetTemperature() (float64, bool) {
 		return 0.0, false
 	}
 
-	switch air.appliance.AirCon.TemperatureUnit {
-	case natureremo.TemperatureUnitAuto:
-		// 温度の単位が自動の場合は処理できない。
-		return 0.0, false
-	case natureremo.TemperatureUnitFahrenheit:
-		return math.Round((tmp-32.0)*5.0/9.0*10.0) / 10.0, true
-	case natureremo.TemperatureUnitCelsius:
-		return math.Round(tmp*10.0) / 10.0, true
-	}
-	return 0.0, false
+	return math.Round(tmp*10.0) / 10.0, true
 }
 
-func (air *airConAppliance) convertTemperature(tmp float64) (string, bool) {
-	switch air.appliance.AirCon.TemperatureUnit {
-	case natureremo.TemperatureUnitAuto:
-		// 温度の単位が自動の場合は処理できない。
-		return "", false
-	case natureremo.TemperatureUnitFahrenheit:
-		tmp = tmp*9.0/5.0 + 32.0
-	}
+func (air *airConAppliance) getTargetTemperatureMinAndMaxAndStep() (float64, float64, float64) {
+	min := 100.0
+	max := 0.0
+	stp := 1.0
 
-	if rng, ok := air.appliance.AirCon.Range.Modes[air.appliance.AirConSettings.OperationMode]; ok {
-		idx := -1
-		dif := 1.0
-		for i, t := range rng.Temperature {
-			rtmp, err := strconv.ParseFloat(t, 64)
+	for _, rng := range air.appliance.AirCon.Range.Modes {
+		for _, v := range rng.Temperature {
+			t, err := strconv.ParseFloat(v, 64)
 			if err != nil {
 				continue
 			}
-			if d := math.Abs(rtmp - tmp); d < dif {
-				idx = i
-				dif = d
-			}
+
+			min = math.Min(t, min)
+			max = math.Max(t, max)
 		}
-		if idx != -1 {
-			return rng.Temperature[idx], true
+	}
+
+	min = math.Max(10.0, min)
+	max = math.Min(38.0, max)
+	return min, max, stp
+}
+
+func (air *airConAppliance) convertTemperature(tmp float64) (string, bool) {
+	if rng, ok := air.appliance.AirCon.Range.Modes[air.appliance.AirConSettings.OperationMode]; ok {
+		for _, v := range rng.Temperature {
+			t, err := strconv.ParseFloat(v, 64)
+			if err != nil {
+				continue
+			}
+
+			if t == tmp {
+				return v, true
+			}
 		}
 	}
 
@@ -391,7 +396,7 @@ func (air *airConAppliance) convertTemperature(tmp float64) (string, bool) {
 func (air *airConAppliance) getTemperatureDisplayUnits() (int, bool) {
 	switch air.appliance.AirCon.TemperatureUnit {
 	case natureremo.TemperatureUnitAuto:
-		// 温度の単位が自動の場合は処理できない。
+		// 温度の単位が自動の場合は設定できない。
 		return 0, false
 	case natureremo.TemperatureUnitFahrenheit:
 		return 1, true
