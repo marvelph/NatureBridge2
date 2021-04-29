@@ -197,9 +197,8 @@ func newAirConAppliance(id uint64, cli *natureremo.Client, ctx context.Context, 
 	if tmp, ok := air.getTargetTemperature(); ok {
 		air.thermostat.TargetTemperature.SetValue(tmp)
 	}
-	// TODO: 下限を設定するとHome.appがフリーズする。
-	_, max, stp := air.getTargetTemperatureMinAndMaxAndStep()
-	//air.thermostat.TargetTemperature.SetMinValue(min)
+	min, max, stp := air.getTargetTemperatureMinAndMaxAndStep()
+	air.thermostat.TargetTemperature.SetMinValue(min)
 	air.thermostat.TargetTemperature.SetMaxValue(max)
 	air.thermostat.TargetTemperature.SetStepValue(stp)
 	air.thermostat.TargetTemperature.OnValueRemoteUpdate(air.changeTargetTemperature)
@@ -366,7 +365,9 @@ func (air *airConAppliance) getTargetTemperatureMinAndMaxAndStep() (float64, flo
 
 	min = math.Max(10.0, min)
 	max = math.Min(38.0, max)
-	return min, max, stp
+
+	// TODO: 下限を10.0よりも大きく設定するとiOSやmacOSのHome.appがフリーズする。
+	return 10.0, max, stp
 }
 
 func (air *airConAppliance) getTemperatureDisplayUnits() (int, bool) {
