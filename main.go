@@ -269,17 +269,17 @@ func (air *airConAppliance) getCurrentHeatingCoolingState() (int, bool) {
 	case natureremo.ButtonPowerOn:
 		switch air.appliance.AirConSettings.OperationMode {
 		case natureremo.OperationModeAuto:
-			// モードが自動の場合は設定できない。
+			// モードが自動の場合は取得できない。
 			return 0, false
 		case natureremo.OperationModeCool:
 			return 2, true
 		case natureremo.OperationModeWarm:
 			return 1, true
 		case natureremo.OperationModeDry:
-			// モードが除湿の場合は設定できない。
+			// モードが除湿の場合は取得できない。
 			return 0, false
 		case natureremo.OperationModeBlow:
-			// モードが送風の場合は設定できない。
+			// モードが送風の場合は取得できない。
 			return 0, false
 		}
 	case natureremo.ButtonPowerOff:
@@ -294,17 +294,17 @@ func (air *airConAppliance) getTargetHeatingCoolingState() (int, bool) {
 	case natureremo.ButtonPowerOn:
 		switch air.appliance.AirConSettings.OperationMode {
 		case natureremo.OperationModeAuto:
-			// モードが自動の場合は設定できない。
+			// モードが自動の場合は取得できない。
 			return 0, false
 		case natureremo.OperationModeCool:
 			return 2, true
 		case natureremo.OperationModeWarm:
 			return 1, true
 		case natureremo.OperationModeDry:
-			// モードが除湿の場合は設定できない。
+			// モードが除湿の場合は取得できない。
 			return 0, false
 		case natureremo.OperationModeBlow:
-			// モードが送風の場合は設定できない。
+			// モードが送風の場合は取得できない。
 			return 0, false
 		}
 	case natureremo.ButtonPowerOff:
@@ -314,29 +314,8 @@ func (air *airConAppliance) getTargetHeatingCoolingState() (int, bool) {
 }
 
 func (air *airConAppliance) getTargetHeatingCoolingStateMax() int {
-	// エアコンの自動モードには温度を相対値で指定する必要があるので対応できない。
+	// エアコンの自動モードには温度を相対値で指定する必要があるので操作範囲から除外する。
 	return 2
-}
-
-func (air *airConAppliance) convertOperationModeAndButton(sta int) (natureremo.OperationMode, natureremo.Button, bool) {
-	switch sta {
-	case 0:
-		// 電源を切る場合は現在のモードを維持する。
-		return air.appliance.AirConSettings.OperationMode, natureremo.ButtonPowerOff, true
-	case 1:
-		if _, ok := air.appliance.AirCon.Range.Modes[natureremo.OperationModeWarm]; ok {
-			return natureremo.OperationModeWarm, natureremo.ButtonPowerOn, true
-		}
-	case 2:
-		if _, ok := air.appliance.AirCon.Range.Modes[natureremo.OperationModeCool]; ok {
-			return natureremo.OperationModeCool, natureremo.ButtonPowerOn, true
-		}
-	case 3:
-		if _, ok := air.appliance.AirCon.Range.Modes[natureremo.OperationModeAuto]; ok {
-			return natureremo.OperationModeAuto, natureremo.ButtonPowerOn, true
-		}
-	}
-	return "", "", false
 }
 
 func (air *airConAppliance) getCurrentTemperature() (float64, bool) {
@@ -391,6 +370,40 @@ func (air *airConAppliance) getTargetTemperatureMinAndMaxAndStep() (float64, flo
 	return min, max, stp
 }
 
+func (air *airConAppliance) getTemperatureDisplayUnits() (int, bool) {
+	switch air.appliance.AirCon.TemperatureUnit {
+	case natureremo.TemperatureUnitAuto:
+		// 温度の単位が自動の場合は取得できない。
+		return 0, false
+	case natureremo.TemperatureUnitFahrenheit:
+		return 1, true
+	case natureremo.TemperatureUnitCelsius:
+		return 0, true
+	}
+	return 0, false
+}
+
+func (air *airConAppliance) convertOperationModeAndButton(sta int) (natureremo.OperationMode, natureremo.Button, bool) {
+	switch sta {
+	case 0:
+		// 電源を切る場合は現在のモードを維持する。
+		return air.appliance.AirConSettings.OperationMode, natureremo.ButtonPowerOff, true
+	case 1:
+		if _, ok := air.appliance.AirCon.Range.Modes[natureremo.OperationModeWarm]; ok {
+			return natureremo.OperationModeWarm, natureremo.ButtonPowerOn, true
+		}
+	case 2:
+		if _, ok := air.appliance.AirCon.Range.Modes[natureremo.OperationModeCool]; ok {
+			return natureremo.OperationModeCool, natureremo.ButtonPowerOn, true
+		}
+	case 3:
+		if _, ok := air.appliance.AirCon.Range.Modes[natureremo.OperationModeAuto]; ok {
+			return natureremo.OperationModeAuto, natureremo.ButtonPowerOn, true
+		}
+	}
+	return "", "", false
+}
+
 func (air *airConAppliance) convertTemperature(tmp float64) (string, bool) {
 	if rng, ok := air.appliance.AirCon.Range.Modes[air.appliance.AirConSettings.OperationMode]; ok {
 		for _, v := range rng.Temperature {
@@ -406,19 +419,6 @@ func (air *airConAppliance) convertTemperature(tmp float64) (string, bool) {
 	}
 
 	return "", false
-}
-
-func (air *airConAppliance) getTemperatureDisplayUnits() (int, bool) {
-	switch air.appliance.AirCon.TemperatureUnit {
-	case natureremo.TemperatureUnitAuto:
-		// 温度の単位が自動の場合は設定できない。
-		return 0, false
-	case natureremo.TemperatureUnitFahrenheit:
-		return 1, true
-	case natureremo.TemperatureUnitCelsius:
-		return 0, true
-	}
-	return 0, false
 }
 
 type lightAppliance struct {
