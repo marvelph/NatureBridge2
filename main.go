@@ -231,14 +231,12 @@ func (air *airConAppliance) update(dev *natureremo.Device, ali *natureremo.Appli
 }
 
 func (air *airConAppliance) changeTargetHeatingCoolingState(sta int) {
-	ctx, cancel := context.WithTimeout(air.context, timeout)
-	defer cancel()
+	if mod, but, ok := air.convertOperationModeAndButton(sta); ok {
+		ctx, cancel := context.WithTimeout(air.context, timeout)
+		defer cancel()
 
-	if mod, bot, ok := air.convertOperationModeAndButton(sta); ok {
-		// TODO: 更新する属性以外の値の妥当性が検討されていない。
-		air.appliance.AirConSettings.OperationMode = mod
-		air.appliance.AirConSettings.Button = bot
-		err := air.client.ApplianceService.UpdateAirConSettings(ctx, air.appliance, air.appliance.AirConSettings)
+		stg := natureremo.AirConSettings{OperationMode: mod, Button: but}
+		err := air.client.ApplianceService.UpdateAirConSettings(ctx, air.appliance, &stg)
 		if err != nil {
 			log.Print(err)
 		}
@@ -246,13 +244,12 @@ func (air *airConAppliance) changeTargetHeatingCoolingState(sta int) {
 }
 
 func (air *airConAppliance) changeTargetTemperature(tmp float64) {
-	ctx, cancel := context.WithTimeout(air.context, timeout)
-	defer cancel()
-
 	if t, ok := air.convertTemperature(tmp); ok {
-		// TODO: 更新する属性以外の値の妥当性が検討されていない。
-		air.appliance.AirConSettings.Temperature = t
-		err := air.client.ApplianceService.UpdateAirConSettings(ctx, air.appliance, air.appliance.AirConSettings)
+		ctx, cancel := context.WithTimeout(air.context, timeout)
+		defer cancel()
+
+		stg := natureremo.AirConSettings{Temperature: t}
+		err := air.client.ApplianceService.UpdateAirConSettings(ctx, air.appliance, &stg)
 		if err != nil {
 			log.Print(err)
 		}
@@ -401,8 +398,20 @@ func (air *airConAppliance) convertOperationModeAndButton(sta int) (natureremo.O
 }
 
 func (air *airConAppliance) convertTemperature(tmp float64) (string, bool) {
-	// TODO: 現在のモードではなく更新後のモードで設定可能な温度を判定する必要がある。
-	if rng, ok := air.appliance.AirCon.Range.Modes[air.appliance.AirConSettings.OperationMode]; ok {
+	var mod natureremo.OperationMode
+
+	switch air.thermostat.TargetHeatingCoolingState.GetValue() {
+	case 0:
+		return "", false
+	case 1:
+		mod = natureremo.OperationModeWarm
+	case 2:
+		mod = natureremo.OperationModeCool
+	default:
+		return "", false
+	}
+
+	if rng, ok := air.appliance.AirCon.Range.Modes[mod]; ok {
 		for _, v := range rng.Temperature {
 			t, err := strconv.ParseFloat(v, 64)
 			if err != nil {
