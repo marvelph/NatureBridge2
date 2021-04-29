@@ -716,6 +716,10 @@ func (app *application) saveAids() error {
 func (app *application) loadAids() error {
 	bs, err := ioutil.ReadFile(filepath.Join(os.Getenv("DATA_DIRECTORY"), "aids.json"))
 	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+
 		return err
 	}
 
