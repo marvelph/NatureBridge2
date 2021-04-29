@@ -63,22 +63,22 @@ func newNatureRemo(id uint64, cli *natureremo.Client, ctx context.Context, dev *
 	)
 
 	rem.temperatureSensor = service.NewTemperatureSensor()
-	if tmp, ok := rem.convertCurrentTemperature(rem.device.NewestEvents[natureremo.SensorTypeTemperature].Value); ok {
+	if tmp, ok := rem.getCurrentTemperature(); ok {
 		rem.temperatureSensor.CurrentTemperature.SetValue(tmp)
 	}
 	rem.AddService(rem.temperatureSensor.Service)
 
-	if evt, ok := rem.device.NewestEvents[natureremo.SensorTypeHumidity]; ok {
+	if _, ok := rem.device.NewestEvents[natureremo.SensorTypeHumidity]; ok {
 		rem.humiditySensor = service.NewHumiditySensor()
-		if hum, ok := rem.convertCurrentRelativeHumidity(evt.Value); ok {
+		if hum, ok := rem.getCurrentRelativeHumidity(); ok {
 			rem.humiditySensor.CurrentRelativeHumidity.SetValue(hum)
 		}
 		rem.AddService(rem.humiditySensor.Service)
 	}
 
-	if evt, ok := rem.device.NewestEvents[natureremo.SensortypeIllumination]; ok {
+	if _, ok := rem.device.NewestEvents[natureremo.SensortypeIllumination]; ok {
 		rem.lightSensor = service.NewLightSensor()
-		if ill, ok := rem.convertCurrentAmbientLightLevel(evt.Value); ok {
+		if ill, ok := rem.getCurrentAmbientLightLevel(); ok {
 			rem.lightSensor.CurrentAmbientLightLevel.SetValue(ill)
 		}
 		rem.AddService(rem.lightSensor.Service)
@@ -90,45 +90,60 @@ func newNatureRemo(id uint64, cli *natureremo.Client, ctx context.Context, dev *
 func (rem *natureRemo) update(dev *natureremo.Device) {
 	rem.device = dev
 
-	if tmp, ok := rem.convertCurrentTemperature(rem.device.NewestEvents[natureremo.SensorTypeTemperature].Value); ok {
+	if tmp, ok := rem.getCurrentTemperature(); ok {
 		rem.temperatureSensor.CurrentTemperature.SetValue(tmp)
 	}
 
-	if evt, ok := rem.device.NewestEvents[natureremo.SensorTypeHumidity]; rem.humiditySensor != nil && ok {
-		if hum, ok := rem.convertCurrentRelativeHumidity(evt.Value); ok {
+	if rem.humiditySensor != nil {
+		if hum, ok := rem.getCurrentRelativeHumidity(); ok {
 			rem.humiditySensor.CurrentRelativeHumidity.SetValue(hum)
 		}
 	}
 
-	if evt, ok := rem.device.NewestEvents[natureremo.SensortypeIllumination]; rem.lightSensor != nil && ok {
-		if ill, ok := rem.convertCurrentAmbientLightLevel(evt.Value); ok {
+	if rem.lightSensor != nil {
+		if ill, ok := rem.getCurrentAmbientLightLevel(); ok {
 			rem.lightSensor.CurrentAmbientLightLevel.SetValue(ill)
 		}
 	}
 }
 
-func (rem *natureRemo) convertCurrentTemperature(tmp float64) (float64, bool) {
-	if tmp < 0.0 || 100.0 < tmp {
-		return 0.0, false
-	}
+func (rem *natureRemo) getCurrentTemperature() (float64, bool) {
+	if evt, ok := rem.device.NewestEvents[natureremo.SensorTypeTemperature]; ok {
+		tmp := evt.Value
 
-	return math.Round(tmp*10.0) / 10.0, true
+		if tmp < 0.0 || 100.0 < tmp {
+			return 0.0, false
+		}
+
+		return math.Round(tmp*10.0) / 10.0, true
+	}
+	return 0.0, false
 }
 
-func (rem *natureRemo) convertCurrentRelativeHumidity(hum float64) (float64, bool) {
-	if hum < 0.0 || 100.0 < hum {
-		return 0.0, false
-	}
+func (rem *natureRemo) getCurrentRelativeHumidity() (float64, bool) {
+	if evt, ok := rem.device.NewestEvents[natureremo.SensorTypeHumidity]; ok {
+		hum := evt.Value
 
-	return math.Round(hum), true
+		if hum < 0.0 || 100.0 < hum {
+			return 0.0, false
+		}
+
+		return math.Round(hum), true
+	}
+	return 0.0, false
 }
 
-func (rem *natureRemo) convertCurrentAmbientLightLevel(ill float64) (float64, bool) {
-	if ill < 0.0001 || 100000 < ill {
-		return 0.0, false
-	}
+func (rem *natureRemo) getCurrentAmbientLightLevel() (float64, bool) {
+	if evt, ok := rem.device.NewestEvents[natureremo.SensortypeIllumination]; ok {
+		ill := evt.Value
 
-	return ill, true
+		if ill < 0.0001 || 100000.0 < ill {
+			return 0.0, false
+		}
+
+		return ill, true
+	}
+	return 0.0, false
 }
 
 type applianceUpdater interface {
@@ -405,7 +420,7 @@ func newLightAppliance(id uint64, cli *natureremo.Client, ctx context.Context, d
 	)
 
 	lig.lightbulb = service.NewLightbulb()
-	if on, ok := lig.convertOn(lig.appliance.Light.State.Power); ok {
+	if on, ok := lig.getOn(); ok {
 		lig.lightbulb.On.SetValue(on)
 	}
 	lig.lightbulb.On.OnValueRemoteUpdate(lig.changeOn)
@@ -418,7 +433,7 @@ func (lig *lightAppliance) update(dev *natureremo.Device, ali *natureremo.Applia
 	lig.device = dev
 	lig.appliance = ali
 
-	if on, ok := lig.convertOn(lig.appliance.Light.State.Power); ok {
+	if on, ok := lig.getOn(); ok {
 		lig.lightbulb.On.SetValue(on)
 	}
 }
@@ -433,8 +448,8 @@ func (lig *lightAppliance) changeOn(on bool) {
 	}
 }
 
-func (lig *lightAppliance) convertOn(on string) (bool, bool) {
-	switch on {
+func (lig *lightAppliance) getOn() (bool, bool) {
+	switch lig.appliance.Light.State.Power {
 	case "on":
 		return true, true
 	case "off":
