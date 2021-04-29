@@ -228,8 +228,8 @@ func (air *airConAppliance) changeTargetTemperature(tmp float64) {
 	ctx, cancel := context.WithTimeout(air.context, timeout)
 	defer cancel()
 
-	if v, ok := air.convertTemperature(tmp); ok {
-		air.appliance.AirConSettings.Temperature = v
+	if t, ok := air.convertTemperature(tmp); ok {
+		air.appliance.AirConSettings.Temperature = t
 		err := air.client.ApplianceService.UpdateAirConSettings(ctx, air.appliance, air.appliance.AirConSettings)
 		if err != nil {
 			log.Print(err)
@@ -285,17 +285,22 @@ func (air *airConAppliance) convertTargetHeatingCoolingState(m natureremo.Operat
 }
 
 func (air *airConAppliance) convertOperationModeAndButton(sta int) (natureremo.OperationMode, natureremo.Button, bool) {
-	// TODO: エアコンは設定可能なモードの一覧を提供しているのでその値を外れる場合は失敗させる必要がある。
 	switch sta {
 	case 0:
 		// 電源を切る場合は現在のモードを維持する。
 		return air.appliance.AirConSettings.OperationMode, natureremo.ButtonPowerOff, true
 	case 1:
-		return natureremo.OperationModeWarm, natureremo.ButtonPowerOn, true
+		if _, ok := air.appliance.AirCon.Range.Modes[natureremo.OperationModeWarm]; ok {
+			return natureremo.OperationModeWarm, natureremo.ButtonPowerOn, true
+		}
 	case 2:
-		return natureremo.OperationModeCool, natureremo.ButtonPowerOn, true
+		if _, ok := air.appliance.AirCon.Range.Modes[natureremo.OperationModeCool]; ok {
+			return natureremo.OperationModeCool, natureremo.ButtonPowerOn, true
+		}
 	case 3:
-		return natureremo.OperationModeAuto, natureremo.ButtonPowerOn, true
+		if _, ok := air.appliance.AirCon.Range.Modes[natureremo.OperationModeAuto]; ok {
+			return natureremo.OperationModeAuto, natureremo.ButtonPowerOn, true
+		}
 	}
 	return "", "", false
 }
@@ -309,12 +314,12 @@ func (air *airConAppliance) convertCurrentTemperature(tmp float64) (float64, boo
 }
 
 func (air *airConAppliance) convertTargetTemperature(tmp string) (float64, bool) {
-	v, err := strconv.ParseFloat(tmp, 64)
+	t, err := strconv.ParseFloat(tmp, 64)
 	if err != nil {
 		return 0.0, false
 	}
 
-	if v < 10.0 || 38.0 < v {
+	if t < 10.0 || 38.0 < t {
 		return 0.0, false
 	}
 
@@ -323,9 +328,9 @@ func (air *airConAppliance) convertTargetTemperature(tmp string) (float64, bool)
 		// 温度の単位が自動の場合は処理できない。
 		return 0.0, false
 	case natureremo.TemperatureUnitFahrenheit:
-		return math.Round((v-32.0)*5.0/9.0*10.0) / 10.0, true
+		return math.Round((t-32.0)*5.0/9.0*10.0) / 10.0, true
 	case natureremo.TemperatureUnitCelsius:
-		return math.Round(v*10.0) / 10.0, true
+		return math.Round(t*10.0) / 10.0, true
 	}
 	return 0.0, false // ここに到達する事はない。
 }
@@ -339,8 +344,25 @@ func (air *airConAppliance) convertTemperature(tmp float64) (string, bool) {
 		tmp = tmp*9.0/5.0 + 32.0
 	}
 
-	// TODO: エアコンは設定可能な温度の一覧を提供しているのでその値を外れる場合は失敗させる必要がある。
-	return strconv.FormatFloat(tmp, 'f', 1, 64), true
+	if rng, ok := air.appliance.AirCon.Range.Modes[air.appliance.AirConSettings.OperationMode]; ok {
+		idx := -1
+		dif := 1.0
+		for i, t := range rng.Temperature {
+			rtmp, err := strconv.ParseFloat(t, 64)
+			if err != nil {
+				continue
+			}
+			if d := math.Abs(rtmp - tmp); d < dif {
+				idx = i
+				dif = d
+			}
+		}
+		if idx != -1 {
+			return rng.Temperature[idx], true
+		}
+	}
+
+	return "", false
 }
 
 func (air *airConAppliance) convertTemperatureDisplayUnits(uni natureremo.TemperatureUnit) (int, bool) {
@@ -418,7 +440,7 @@ func (lig *lightAppliance) convertOn(on string) (bool, bool) {
 	case "off":
 		return false, true
 	}
-	return false, false
+	return false, false // ここに到達する事はない。
 }
 
 func (lig *lightAppliance) convertPower(on bool) string {
