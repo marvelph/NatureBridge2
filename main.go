@@ -117,6 +117,7 @@ func (rem *natureRemo) getCurrentTemperature() (float64, bool) {
 
 		return math.Round(tmp*10.0) / 10.0, true
 	}
+
 	return 0.0, false
 }
 
@@ -130,6 +131,7 @@ func (rem *natureRemo) getCurrentRelativeHumidity() (float64, bool) {
 
 		return math.Round(hum), true
 	}
+
 	return 0.0, false
 }
 
@@ -143,6 +145,7 @@ func (rem *natureRemo) getCurrentAmbientLightLevel() (float64, bool) {
 
 		return ill, true
 	}
+
 	return 0.0, false
 }
 
@@ -177,23 +180,21 @@ func newAirConAppliance(id uint64, cli *natureremo.Client, ctx context.Context, 
 	)
 
 	air.thermostat = service.NewThermostat()
-	// エアコンの現在のモードを取得する方法は無いのでリモコンに対する最後の操作を現在のモードと見做す。
-	if sta, ok := air.convertCurrentHeatingCoolingState(air.appliance.AirConSettings.OperationMode, air.appliance.AirConSettings.Button); ok {
+	if sta, ok := air.getCurrentHeatingCoolingState(); ok {
 		air.thermostat.CurrentHeatingCoolingState.SetValue(sta)
 	}
-	if sta, ok := air.convertTargetHeatingCoolingState(air.appliance.AirConSettings.OperationMode, air.appliance.AirConSettings.Button); ok {
+	if sta, ok := air.getTargetHeatingCoolingState(); ok {
 		air.thermostat.TargetHeatingCoolingState.SetValue(sta)
 	}
 	air.thermostat.TargetHeatingCoolingState.OnValueRemoteUpdate(air.changeTargetHeatingCoolingState)
-	// エアコンの温度計の値を取得する方法は無いのでNatureRemoの温度計の値をエアコンの温度と見做す。
-	if tmp, ok := air.convertCurrentTemperature(air.device.NewestEvents[natureremo.SensorTypeTemperature].Value); ok {
+	if tmp, ok := air.getCurrentTemperature(); ok {
 		air.thermostat.CurrentTemperature.SetValue(tmp)
 	}
-	if tmp, ok := air.convertTargetTemperature(air.appliance.AirConSettings.Temperature); ok {
+	if tmp, ok := air.getTargetTemperature(); ok {
 		air.thermostat.TargetTemperature.SetValue(tmp)
 	}
 	air.thermostat.TargetTemperature.OnValueRemoteUpdate(air.changeTargetTemperature)
-	if uni, ok := air.convertTemperatureDisplayUnits(air.appliance.AirCon.TemperatureUnit); ok {
+	if uni, ok := air.getTemperatureDisplayUnits(); ok {
 		air.thermostat.TemperatureDisplayUnits.SetValue(uni)
 	}
 	// エアコンの表示単位を変更する方法は無いので書き込みには対応できない。
@@ -206,21 +207,19 @@ func (air *airConAppliance) update(dev *natureremo.Device, ali *natureremo.Appli
 	air.device = dev
 	air.appliance = ali
 
-	// エアコンの現在のモードを取得する方法は無いのでリモコンに対する最後の操作を現在のモードと見做す。
-	if sta, ok := air.convertCurrentHeatingCoolingState(air.appliance.AirConSettings.OperationMode, air.appliance.AirConSettings.Button); ok {
+	if sta, ok := air.getCurrentHeatingCoolingState(); ok {
 		air.thermostat.CurrentHeatingCoolingState.SetValue(sta)
 	}
-	if sta, ok := air.convertTargetHeatingCoolingState(air.appliance.AirConSettings.OperationMode, air.appliance.AirConSettings.Button); ok {
+	if sta, ok := air.getTargetHeatingCoolingState(); ok {
 		air.thermostat.TargetHeatingCoolingState.SetValue(sta)
 	}
-	// エアコンの温度計の値を取得する方法は無いのでNatureRemoの温度計の値をエアコンの温度と見做す。
-	if tmp, ok := air.convertCurrentTemperature(air.device.NewestEvents[natureremo.SensorTypeTemperature].Value); ok {
+	if tmp, ok := air.getCurrentTemperature(); ok {
 		air.thermostat.CurrentTemperature.SetValue(tmp)
 	}
-	if tmp, ok := air.convertTargetTemperature(air.appliance.AirConSettings.Temperature); ok {
+	if tmp, ok := air.getTargetTemperature(); ok {
 		air.thermostat.TargetTemperature.SetValue(tmp)
 	}
-	if uni, ok := air.convertTemperatureDisplayUnits(air.appliance.AirCon.TemperatureUnit); ok {
+	if uni, ok := air.getTemperatureDisplayUnits(); ok {
 		air.thermostat.TemperatureDisplayUnits.SetValue(uni)
 	}
 }
@@ -252,12 +251,13 @@ func (air *airConAppliance) changeTargetTemperature(tmp float64) {
 	}
 }
 
-func (air *airConAppliance) convertCurrentHeatingCoolingState(mod natureremo.OperationMode, bot natureremo.Button) (int, bool) {
-	switch bot {
+func (air *airConAppliance) getCurrentHeatingCoolingState() (int, bool) {
+	// エアコン本体の現在のモードを取得する方法は無いのでリモコンに対する最後の操作を現在のモードと見做す。
+	switch air.appliance.AirConSettings.Button {
 	case natureremo.ButtonPowerOn:
-		switch mod {
+		switch air.appliance.AirConSettings.OperationMode {
 		case natureremo.OperationModeAuto:
-			// 自動運転に対する現在のモードを判定する方法はない。
+			// 自動運転に対する現在のモードを推定する方法はない。
 			return 0, false
 		case natureremo.OperationModeCool:
 			return 2, true
@@ -273,13 +273,14 @@ func (air *airConAppliance) convertCurrentHeatingCoolingState(mod natureremo.Ope
 	case natureremo.ButtonPowerOff:
 		return 0, true
 	}
-	return 0, false // ここに到達する事はない。
+
+	return 0, false
 }
 
-func (air *airConAppliance) convertTargetHeatingCoolingState(m natureremo.OperationMode, bot natureremo.Button) (int, bool) {
-	switch bot {
+func (air *airConAppliance) getTargetHeatingCoolingState() (int, bool) {
+	switch air.appliance.AirConSettings.Button {
 	case natureremo.ButtonPowerOn:
-		switch m {
+		switch air.appliance.AirConSettings.OperationMode {
 		case natureremo.OperationModeAuto:
 			return 3, true
 		case natureremo.OperationModeCool:
@@ -296,7 +297,7 @@ func (air *airConAppliance) convertTargetHeatingCoolingState(m natureremo.Operat
 	case natureremo.ButtonPowerOff:
 		return 0, true
 	}
-	return 0, false // ここに到達する事はない。
+	return 0, false
 }
 
 func (air *airConAppliance) convertOperationModeAndButton(sta int) (natureremo.OperationMode, natureremo.Button, bool) {
@@ -320,21 +321,28 @@ func (air *airConAppliance) convertOperationModeAndButton(sta int) (natureremo.O
 	return "", "", false
 }
 
-func (air *airConAppliance) convertCurrentTemperature(tmp float64) (float64, bool) {
-	if tmp < 0.0 || 100.0 < tmp {
-		return 0.0, false
+func (air *airConAppliance) getCurrentTemperature() (float64, bool) {
+	// エアコン本体の温度計の値を取得する方法は無いのでNatureRemoの温度計の値をエアコンの温度と見做す。
+	if evt, ok := air.device.NewestEvents[natureremo.SensorTypeTemperature]; ok {
+		tmp := evt.Value
+
+		if tmp < 0.0 || 100.0 < tmp {
+			return 0.0, false
+		}
+
+		return math.Round(tmp*10.0) / 10.0, true
 	}
 
-	return math.Round(tmp*10.0) / 10.0, true
+	return 0.0, false
 }
 
-func (air *airConAppliance) convertTargetTemperature(tmp string) (float64, bool) {
-	t, err := strconv.ParseFloat(tmp, 64)
+func (air *airConAppliance) getTargetTemperature() (float64, bool) {
+	tmp, err := strconv.ParseFloat(air.appliance.AirConSettings.Temperature, 64)
 	if err != nil {
 		return 0.0, false
 	}
 
-	if t < 10.0 || 38.0 < t {
+	if tmp < 10.0 || 38.0 < tmp {
 		return 0.0, false
 	}
 
@@ -343,11 +351,11 @@ func (air *airConAppliance) convertTargetTemperature(tmp string) (float64, bool)
 		// 温度の単位が自動の場合は処理できない。
 		return 0.0, false
 	case natureremo.TemperatureUnitFahrenheit:
-		return math.Round((t-32.0)*5.0/9.0*10.0) / 10.0, true
+		return math.Round((tmp-32.0)*5.0/9.0*10.0) / 10.0, true
 	case natureremo.TemperatureUnitCelsius:
-		return math.Round(t*10.0) / 10.0, true
+		return math.Round(tmp*10.0) / 10.0, true
 	}
-	return 0.0, false // ここに到達する事はない。
+	return 0.0, false
 }
 
 func (air *airConAppliance) convertTemperature(tmp float64) (string, bool) {
@@ -380,8 +388,8 @@ func (air *airConAppliance) convertTemperature(tmp float64) (string, bool) {
 	return "", false
 }
 
-func (air *airConAppliance) convertTemperatureDisplayUnits(uni natureremo.TemperatureUnit) (int, bool) {
-	switch uni {
+func (air *airConAppliance) getTemperatureDisplayUnits() (int, bool) {
+	switch air.appliance.AirCon.TemperatureUnit {
 	case natureremo.TemperatureUnitAuto:
 		// 温度の単位が自動の場合は処理できない。
 		return 0, false
@@ -390,7 +398,7 @@ func (air *airConAppliance) convertTemperatureDisplayUnits(uni natureremo.Temper
 	case natureremo.TemperatureUnitCelsius:
 		return 0, true
 	}
-	return 0, false // ここに到達する事はない。
+	return 0, false
 }
 
 type lightAppliance struct {
@@ -455,7 +463,8 @@ func (lig *lightAppliance) getOn() (bool, bool) {
 	case "off":
 		return false, true
 	}
-	return false, false // ここに到達する事はない。
+
+	return false, false
 }
 
 func (lig *lightAppliance) convertPower(on bool) string {
@@ -507,6 +516,7 @@ func (app *application) update() error {
 	} else {
 		app.apply(devs, alis)
 	}
+
 	return nil
 }
 
