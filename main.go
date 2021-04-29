@@ -244,11 +244,11 @@ func (air *airConAppliance) changeTargetHeatingCoolingState(sta int) {
 }
 
 func (air *airConAppliance) changeTargetTemperature(tmp float64) {
-	if t, ok := air.convertTemperature(tmp); ok {
+	if tmp, ok := air.convertTemperature(tmp); ok {
 		ctx, cancel := context.WithTimeout(air.context, timeout)
 		defer cancel()
 
-		stg := natureremo.AirConSettings{Temperature: t}
+		stg := natureremo.AirConSettings{Temperature: tmp}
 		err := air.client.ApplianceService.UpdateAirConSettings(ctx, air.appliance, &stg)
 		if err != nil {
 			log.Print(err)
@@ -348,17 +348,24 @@ func (air *airConAppliance) getTargetTemperatureMinAndMaxAndStep() (float64, flo
 	max := 0.0
 	stp := 1.0
 
-	// TODO: 温度の刻みを算出していない。
 	for _, mod := range []natureremo.OperationMode{natureremo.OperationModeCool, natureremo.OperationModeWarm} {
 		if rng, ok := air.appliance.AirCon.Range.Modes[mod]; ok {
-			for _, v := range rng.Temperature {
-				t, err := strconv.ParseFloat(v, 64)
+			ptmp := 0.0
+			for i, v := range rng.Temperature {
+				tmp, err := strconv.ParseFloat(v, 64)
 				if err != nil {
 					continue
 				}
 
-				min = math.Min(t, min)
-				max = math.Max(t, max)
+				min = math.Min(tmp, min)
+				max = math.Max(tmp, max)
+
+				if i > 0 {
+					if d := tmp - ptmp; d < stp {
+						stp = d
+					}
+				}
+				ptmp = tmp
 			}
 		}
 	}
@@ -415,12 +422,12 @@ func (air *airConAppliance) convertTemperature(tmp float64) (string, bool) {
 
 	if rng, ok := air.appliance.AirCon.Range.Modes[mod]; ok {
 		for _, v := range rng.Temperature {
-			t, err := strconv.ParseFloat(v, 64)
+			rtmp, err := strconv.ParseFloat(v, 64)
 			if err != nil {
 				continue
 			}
 
-			if t == tmp {
+			if rtmp == tmp {
 				return v, true
 			}
 		}
