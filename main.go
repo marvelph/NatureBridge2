@@ -401,6 +401,7 @@ func (air *airConAppliance) convertOperationModeAndButton(sta int) (natureremo.O
 }
 
 func (air *airConAppliance) convertTemperature(tmp float64) (string, bool) {
+	// TODO: 現在のモードではなく更新後のモードで設定可能な温度を判定する必要がある。
 	if rng, ok := air.appliance.AirCon.Range.Modes[air.appliance.AirConSettings.OperationMode]; ok {
 		for _, v := range rng.Temperature {
 			t, err := strconv.ParseFloat(v, 64)
