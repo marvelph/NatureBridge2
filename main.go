@@ -383,8 +383,7 @@ func (air *airConAppliance) getTemperatureDisplayUnits() (int, bool) {
 func (air *airConAppliance) convertOperationModeAndButton(sta int) (natureremo.OperationMode, natureremo.Button, bool) {
 	switch sta {
 	case 0:
-		// 電源を切る場合は現在のモードを維持する。
-		return air.appliance.AirConSettings.OperationMode, natureremo.ButtonPowerOff, true
+		return "", natureremo.ButtonPowerOff, true
 	case 1:
 		if _, ok := air.appliance.AirCon.Range.Modes[natureremo.OperationModeWarm]; ok {
 			return natureremo.OperationModeWarm, natureremo.ButtonPowerOn, true
