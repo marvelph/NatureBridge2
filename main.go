@@ -187,8 +187,10 @@ func newAirConAppliance(id uint64, cli *natureremo.Client, ctx context.Context, 
 	if sta, ok := air.getTargetHeatingCoolingState(); ok {
 		air.thermostat.TargetHeatingCoolingState.SetValue(sta)
 	}
-
+	// エアコンの自動モードには温度を相対値で指定する必要があるので対応できない。
+	air.thermostat.TargetHeatingCoolingState.SetMaxValue(2)
 	air.thermostat.TargetHeatingCoolingState.OnValueRemoteUpdate(air.changeTargetHeatingCoolingState)
+
 	if tmp, ok := air.getCurrentTemperature(); ok {
 		air.thermostat.CurrentTemperature.SetValue(tmp)
 	}
@@ -262,17 +264,17 @@ func (air *airConAppliance) getCurrentHeatingCoolingState() (int, bool) {
 	case natureremo.ButtonPowerOn:
 		switch air.appliance.AirConSettings.OperationMode {
 		case natureremo.OperationModeAuto:
-			// 自動運転に対する現在のモードを推定する方法はない。
+			// モードが自動の場合は設定できない。
 			return 0, false
 		case natureremo.OperationModeCool:
 			return 2, true
 		case natureremo.OperationModeWarm:
 			return 1, true
 		case natureremo.OperationModeDry:
-			// モードが除湿の場合は処理できない。
+			// モードが除湿の場合は設定できない。
 			return 0, false
 		case natureremo.OperationModeBlow:
-			// モードが送風の場合は処理できない。
+			// モードが送風の場合は設定できない。
 			return 0, false
 		}
 	case natureremo.ButtonPowerOff:
@@ -287,7 +289,8 @@ func (air *airConAppliance) getTargetHeatingCoolingState() (int, bool) {
 	case natureremo.ButtonPowerOn:
 		switch air.appliance.AirConSettings.OperationMode {
 		case natureremo.OperationModeAuto:
-			return 3, true
+			// モードが自動の場合は設定できない。
+			return 0, false
 		case natureremo.OperationModeCool:
 			return 2, true
 		case natureremo.OperationModeWarm:
