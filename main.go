@@ -235,6 +235,7 @@ func (air *airConAppliance) changeTargetHeatingCoolingState(sta int) {
 	defer cancel()
 
 	if mod, bot, ok := air.convertOperationModeAndButton(sta); ok {
+		// TODO: 更新する属性以外の値の妥当性が検討されていない。
 		air.appliance.AirConSettings.OperationMode = mod
 		air.appliance.AirConSettings.Button = bot
 		err := air.client.ApplianceService.UpdateAirConSettings(ctx, air.appliance, air.appliance.AirConSettings)
@@ -249,6 +250,7 @@ func (air *airConAppliance) changeTargetTemperature(tmp float64) {
 	defer cancel()
 
 	if t, ok := air.convertTemperature(tmp); ok {
+		// TODO: 更新する属性以外の値の妥当性が検討されていない。
 		air.appliance.AirConSettings.Temperature = t
 		err := air.client.ApplianceService.UpdateAirConSettings(ctx, air.appliance, air.appliance.AirConSettings)
 		if err != nil {
@@ -370,6 +372,8 @@ func (air *airConAppliance) getTargetTemperatureMinAndMaxAndStep() (float64, flo
 	max := 0.0
 	stp := 1.0
 
+	// TODO: 温度の刻みを算出していない。
+	// TODO: 暖房と冷房以外の範囲を算入するべきではない。
 	for _, rng := range air.appliance.AirCon.Range.Modes {
 		for _, v := range rng.Temperature {
 			t, err := strconv.ParseFloat(v, 64)
