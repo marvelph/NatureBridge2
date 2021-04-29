@@ -197,8 +197,8 @@ func newAirConAppliance(id uint64, cli *natureremo.Client, ctx context.Context, 
 	if tmp, ok := air.getTargetTemperature(); ok {
 		air.thermostat.TargetTemperature.SetValue(tmp)
 	}
-	min, max, stp := air.getTargetTemperatureMinAndMaxAndStep()
-	air.thermostat.TargetTemperature.SetMinValue(min)
+	_, max, stp := air.getTargetTemperatureMinAndMaxAndStep()
+	//air.thermostat.TargetTemperature.SetMinValue(min) // 下限を設定するとHome.appがフリーズする。
 	air.thermostat.TargetTemperature.SetMaxValue(max)
 	air.thermostat.TargetTemperature.SetStepValue(stp)
 	air.thermostat.TargetTemperature.OnValueRemoteUpdate(air.changeTargetTemperature)
@@ -349,16 +349,17 @@ func (air *airConAppliance) getTargetTemperatureMinAndMaxAndStep() (float64, flo
 	stp := 1.0
 
 	// TODO: 温度の刻みを算出していない。
-	// TODO: 暖房と冷房以外の範囲を算入するべきではない。
-	for _, rng := range air.appliance.AirCon.Range.Modes {
-		for _, v := range rng.Temperature {
-			t, err := strconv.ParseFloat(v, 64)
-			if err != nil {
-				continue
-			}
+	for _, mod := range []natureremo.OperationMode{natureremo.OperationModeCool, natureremo.OperationModeWarm} {
+		if rng, ok := air.appliance.AirCon.Range.Modes[mod]; ok {
+			for _, v := range rng.Temperature {
+				t, err := strconv.ParseFloat(v, 64)
+				if err != nil {
+					continue
+				}
 
-			min = math.Min(t, min)
-			max = math.Max(t, max)
+				min = math.Min(t, min)
+				max = math.Max(t, max)
+			}
 		}
 	}
 
