@@ -396,10 +396,6 @@ func (air *airConAppliance) convertOperationModeAndButton(sta int) (natureremo.O
 		if _, ok := air.appliance.AirCon.Range.Modes[natureremo.OperationModeCool]; ok {
 			return natureremo.OperationModeCool, natureremo.ButtonPowerOn, true
 		}
-	case 3:
-		if _, ok := air.appliance.AirCon.Range.Modes[natureremo.OperationModeAuto]; ok {
-			return natureremo.OperationModeAuto, natureremo.ButtonPowerOn, true
-		}
 	}
 	return "", "", false
 }
