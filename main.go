@@ -187,8 +187,7 @@ func newAirConAppliance(id uint64, cli *natureremo.Client, ctx context.Context, 
 	if sta, ok := air.getTargetHeatingCoolingState(); ok {
 		air.thermostat.TargetHeatingCoolingState.SetValue(sta)
 	}
-	// エアコンの自動モードには温度を相対値で指定する必要があるので対応できない。
-	air.thermostat.TargetHeatingCoolingState.SetMaxValue(2)
+	air.thermostat.TargetHeatingCoolingState.SetMaxValue(air.getTargetHeatingCoolingStateMax())
 	air.thermostat.TargetHeatingCoolingState.OnValueRemoteUpdate(air.changeTargetHeatingCoolingState)
 
 	if tmp, ok := air.getCurrentTemperature(); ok {
@@ -207,7 +206,7 @@ func newAirConAppliance(id uint64, cli *natureremo.Client, ctx context.Context, 
 	if uni, ok := air.getTemperatureDisplayUnits(); ok {
 		air.thermostat.TemperatureDisplayUnits.SetValue(uni)
 	}
-	// エアコンの表示単位を変更する方法は無いので書き込みには対応できない。
+	air.thermostat.TemperatureDisplayUnits.OnValueRemoteUpdate(air.changeTemperatureDisplayUnits)
 	air.AddService(air.thermostat.Service)
 
 	return &air
@@ -258,6 +257,10 @@ func (air *airConAppliance) changeTargetTemperature(tmp float64) {
 	}
 }
 
+func (air *airConAppliance) changeTemperatureDisplayUnits(uni int) {
+	// エアコンの表示単位を変更する方法は無いので書き込みには対応できない。
+}
+
 func (air *airConAppliance) getCurrentHeatingCoolingState() (int, bool) {
 	// エアコン本体の現在のモードを取得する方法は無いのでリモコンに対する最後の操作を現在のモードと見做す。
 	switch air.appliance.AirConSettings.Button {
@@ -306,6 +309,11 @@ func (air *airConAppliance) getTargetHeatingCoolingState() (int, bool) {
 		return 0, true
 	}
 	return 0, false
+}
+
+func (air *airConAppliance) getTargetHeatingCoolingStateMax() int {
+	// エアコンの自動モードには温度を相対値で指定する必要があるので対応できない。
+	return 2
 }
 
 func (air *airConAppliance) convertOperationModeAndButton(sta int) (natureremo.OperationMode, natureremo.Button, bool) {
