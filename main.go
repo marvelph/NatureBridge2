@@ -19,24 +19,37 @@ import (
 	"github.com/tenntenn/natureremo"
 )
 
-const timeout = 10 * time.Second
-const interval = 1 * time.Minute
+const (
+	timeout  = 10 * time.Second
+	interval = 1 * time.Minute
+)
 
-type natureBridge struct {
+const version = "0.1"
+
+type Bridge struct {
 	*accessory.Accessory
 }
 
-func newNatureBridge(id uint64, usr *natureremo.User) *natureBridge {
-	bri := natureBridge{}
-	bri.Accessory = accessory.New(accessory.Info{Name: usr.Nickname, ID: id}, accessory.TypeBridge)
-	return &bri
+func NewBridge(aid uint64, u *natureremo.User) *Bridge {
+	br := Bridge{}
+	br.Accessory = accessory.New(
+		accessory.Info{
+			Name:             u.Nickname,
+			Manufacturer:     "Kenji Nishishiro",
+			Model:            "NatureBridge2",
+			FirmwareRevision: version,
+			ID:               aid,
+		},
+		accessory.TypeBridge,
+	)
+	return &br
 }
 
-type deviceUpdater interface {
-	update(d *natureremo.Device)
+type RemoUpdater interface {
+	Update(d *natureremo.Device)
 }
 
-type natureRemo struct {
+type Remo struct {
 	*accessory.Accessory
 	temperatureSensor *service.TemperatureSensor
 	humiditySensor    *service.HumiditySensor
@@ -46,104 +59,104 @@ type natureRemo struct {
 	device            *natureremo.Device
 }
 
-func newNatureRemo(id uint64, cli *natureremo.Client, ctx context.Context, dev *natureremo.Device) *natureRemo {
-	rem := natureRemo{}
-	rem.client = cli
-	rem.context = ctx
-	rem.device = dev
-
-	rem.Accessory = accessory.New(
+func NewRemo(aid uint64, client *natureremo.Client, ctx context.Context, d *natureremo.Device) *Remo {
+	re := Remo{}
+	re.Accessory = accessory.New(
 		accessory.Info{
-			Name:             rem.device.Name,
-			Manufacturer:     "Nature",
-			FirmwareRevision: rem.device.FirmwareVersion,
-			ID:               id,
+			Name:             d.Name,
+			Manufacturer:     "Nature Inc.",
+			Model:            "Nature Remo", // There is no way to identify the model name.
+			FirmwareRevision: d.FirmwareVersion,
+			ID:               aid,
 		},
 		accessory.TypeSensor,
 	)
+	re.context = ctx
+	re.client = client
+	re.device = d
 
-	rem.temperatureSensor = service.NewTemperatureSensor()
-	if tmp, ok := rem.getCurrentTemperature(); ok {
-		rem.temperatureSensor.CurrentTemperature.SetValue(tmp)
+	re.temperatureSensor = service.NewTemperatureSensor()
+	if t, ok := re.currentTemperature(); ok {
+		re.temperatureSensor.CurrentTemperature.SetValue(t)
 	}
-	rem.AddService(rem.temperatureSensor.Service)
+	re.AddService(re.temperatureSensor.Service)
 
-	if _, ok := rem.device.NewestEvents[natureremo.SensorTypeHumidity]; ok {
-		rem.humiditySensor = service.NewHumiditySensor()
-		if hum, ok := rem.getCurrentRelativeHumidity(); ok {
-			rem.humiditySensor.CurrentRelativeHumidity.SetValue(hum)
+	if _, ok := re.device.NewestEvents[natureremo.SensorTypeHumidity]; ok {
+		re.humiditySensor = service.NewHumiditySensor()
+		if h, ok := re.currentRelativeHumidity(); ok {
+			re.humiditySensor.CurrentRelativeHumidity.SetValue(h)
 		}
-		rem.AddService(rem.humiditySensor.Service)
+		re.AddService(re.humiditySensor.Service)
 	}
 
-	if _, ok := rem.device.NewestEvents[natureremo.SensortypeIllumination]; ok {
-		rem.lightSensor = service.NewLightSensor()
-		if ill, ok := rem.getCurrentAmbientLightLevel(); ok {
-			rem.lightSensor.CurrentAmbientLightLevel.SetValue(ill)
+	if _, ok := re.device.NewestEvents[natureremo.SensortypeIllumination]; ok {
+		re.lightSensor = service.NewLightSensor()
+		if l, ok := re.currentAmbientLightLevel(); ok {
+			re.lightSensor.CurrentAmbientLightLevel.SetValue(l)
 		}
-		rem.AddService(rem.lightSensor.Service)
+		re.AddService(re.lightSensor.Service)
 	}
 
-	return &rem
+	return &re
 }
 
-func (rem *natureRemo) update(dev *natureremo.Device) {
-	rem.device = dev
+func (re *Remo) Update(d *natureremo.Device) {
+	re.device = d
 
-	if tmp, ok := rem.getCurrentTemperature(); ok {
-		rem.temperatureSensor.CurrentTemperature.SetValue(tmp)
+	if t, ok := re.currentTemperature(); ok {
+		re.temperatureSensor.CurrentTemperature.SetValue(t)
 	}
 
-	if rem.humiditySensor != nil {
-		if hum, ok := rem.getCurrentRelativeHumidity(); ok {
-			rem.humiditySensor.CurrentRelativeHumidity.SetValue(hum)
+	if re.humiditySensor != nil {
+		if h, ok := re.currentRelativeHumidity(); ok {
+			re.humiditySensor.CurrentRelativeHumidity.SetValue(h)
 		}
 	}
 
-	if rem.lightSensor != nil {
-		if ill, ok := rem.getCurrentAmbientLightLevel(); ok {
-			rem.lightSensor.CurrentAmbientLightLevel.SetValue(ill)
+	if re.lightSensor != nil {
+		if l, ok := re.currentAmbientLightLevel(); ok {
+			re.lightSensor.CurrentAmbientLightLevel.SetValue(l)
 		}
 	}
 }
 
-func (rem *natureRemo) getCurrentTemperature() (float64, bool) {
-	if evt, ok := rem.device.NewestEvents[natureremo.SensorTypeTemperature]; ok {
-		tmp := evt.Value
+func (re *Remo) currentTemperature() (float64, bool) {
+	if e, ok := re.device.NewestEvents[natureremo.SensorTypeTemperature]; ok {
+		t := e.Value
 
-		if tmp < 0.0 || 100.0 < tmp {
+		if t < 0.0 || 100.0 < t {
 			return 0.0, false
 		}
 
-		return math.Round(tmp*10.0) / 10.0, true
+		return math.Round(t*10.0) / 10.0, true
 	}
 
 	return 0.0, false
 }
 
-func (rem *natureRemo) getCurrentRelativeHumidity() (float64, bool) {
-	if evt, ok := rem.device.NewestEvents[natureremo.SensorTypeHumidity]; ok {
-		hum := evt.Value
+func (re *Remo) currentRelativeHumidity() (float64, bool) {
+	if e, ok := re.device.NewestEvents[natureremo.SensorTypeHumidity]; ok {
+		h := e.Value
 
-		if hum < 0.0 || 100.0 < hum {
+		if h < 0.0 || 100.0 < h {
 			return 0.0, false
 		}
 
-		return math.Round(hum), true
+		return math.Round(h), true
 	}
 
 	return 0.0, false
 }
 
-func (rem *natureRemo) getCurrentAmbientLightLevel() (float64, bool) {
-	if evt, ok := rem.device.NewestEvents[natureremo.SensortypeIllumination]; ok {
-		ill := evt.Value
+func (re *Remo) currentAmbientLightLevel() (float64, bool) {
+	if e, ok := re.device.NewestEvents[natureremo.SensortypeIllumination]; ok {
+		l := e.Value
 
-		if ill < 0.0001 || 100000.0 < ill {
+		if l < 0.0001 || 100000.0 < l {
 			return 0.0, false
 		}
 
-		return ill, true
+		return l, true
 	}
 
 	return 0.0, false
@@ -515,7 +528,7 @@ type application struct {
 	context    context.Context
 	user       *natureremo.User
 	transport  hc.Transport
-	devices    map[string]deviceUpdater
+	devices    map[string]RemoUpdater
 	appliances map[string]applianceUpdater
 	aids       map[string]uint64
 }
@@ -524,7 +537,7 @@ func newApplication(ctx context.Context) *application {
 	app := application{}
 	app.client = natureremo.NewClient(os.Getenv("ACCESS_TOKEN"))
 	app.context = ctx
-	app.devices = make(map[string]deviceUpdater)
+	app.devices = make(map[string]RemoUpdater)
 	app.appliances = make(map[string]applianceUpdater)
 	app.aids = make(map[string]uint64)
 	return &app
@@ -627,17 +640,17 @@ func (app *application) build(devs []*natureremo.Device, alis []*natureremo.Appl
 		app.transport = nil
 	}
 
-	app.devices = make(map[string]deviceUpdater, len(devs))
+	app.devices = make(map[string]RemoUpdater, len(devs))
 	app.appliances = make(map[string]applianceUpdater, len(alis))
 
-	bri := newNatureBridge(app.getAid(app.user.ID), app.user)
+	bri := NewBridge(app.getAid(app.user.ID), app.user)
 	accs := make([]*accessory.Accessory, 0, len(app.devices)+len(app.appliances))
 	devm := make(map[string]*natureremo.Device, len(devs))
 
 	for _, dev := range devs {
-		rem := newNatureRemo(app.getAid(dev.ID), app.client, app.context, dev)
-		app.devices[dev.ID] = rem
-		accs = append(accs, rem.Accessory)
+		re := NewRemo(app.getAid(dev.ID), app.client, app.context, dev)
+		app.devices[dev.ID] = re
+		accs = append(accs, re.Accessory)
 		devm[dev.ID] = dev
 	}
 
@@ -677,7 +690,7 @@ func (app *application) apply(devs []*natureremo.Device, alis []*natureremo.Appl
 	devm := make(map[string]*natureremo.Device, len(devs))
 
 	for _, dev := range devs {
-		app.devices[dev.ID].update(dev)
+		app.devices[dev.ID].Update(dev)
 		devm[dev.ID] = dev
 	}
 
