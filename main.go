@@ -602,17 +602,18 @@ func (app *Application) getAll() ([]*natureremo.Device, []*natureremo.Appliance,
 }
 
 func (app *Application) wasChanged(ds []*natureremo.Device, as []*natureremo.Appliance) bool {
-	ealis := make([]*natureremo.Appliance, 0, len(as))
+	appliances := make([]*natureremo.Appliance, 0, len(as))
+
 	for _, a := range as {
 		switch a.Type {
 		case natureremo.ApplianceTypeAirCon:
-			ealis = append(ealis, a)
+			appliances = append(appliances, a)
 		case natureremo.ApplianceTypeLight:
-			ealis = append(ealis, a)
+			appliances = append(appliances, a)
 		}
 	}
 
-	if len(app.remos) != len(ds) || len(app.accessories) != len(ealis) {
+	if len(app.remos) != len(ds) || len(app.accessories) != len(appliances) {
 		return true
 	}
 
@@ -622,7 +623,7 @@ func (app *Application) wasChanged(ds []*natureremo.Device, as []*natureremo.App
 		}
 	}
 
-	for _, a := range ealis {
+	for _, a := range appliances {
 		if _, ok := app.accessories[a.ID]; !ok {
 			return true
 		}
@@ -646,26 +647,31 @@ func (app *Application) build(ds []*natureremo.Device, as []*natureremo.Applianc
 	app.accessories = make(map[string]Updater, len(as))
 
 	br := NewBridge(app.getAid(app.user.ID), app.user)
-	acs := make([]*accessory.Accessory, 0, len(app.remos)+len(app.accessories))
-	devm := make(map[string]*natureremo.Device, len(ds))
+
+	devices := make(map[string]*natureremo.Device, len(ds))
+	accessories := make([]*accessory.Accessory, 0, len(app.remos)+len(app.accessories))
 
 	for _, d := range ds {
+		devices[d.ID] = d
+
 		re := NewRemo(app.getAid(d.ID), app.client, app.context, d)
 		app.remos[d.ID] = re
-		acs = append(acs, re.Accessory)
-		devm[d.ID] = d
+
+		accessories = append(accessories, re.Accessory)
 	}
 
 	for _, a := range as {
 		switch a.Type {
 		case natureremo.ApplianceTypeAirCon:
-			ai := NewAirCon(app.getAid(a.ID), app.client, app.context, devm[a.Device.ID], a)
+			ai := NewAirCon(app.getAid(a.ID), app.client, app.context, devices[a.Device.ID], a)
 			app.accessories[a.ID] = ai
-			acs = append(acs, ai.Accessory)
+
+			accessories = append(accessories, ai.Accessory)
 		case natureremo.ApplianceTypeLight:
-			li := NewLight(app.getAid(a.ID), app.client, app.context, devm[a.Device.ID], a)
+			li := NewLight(app.getAid(a.ID), app.client, app.context, devices[a.Device.ID], a)
 			app.accessories[a.ID] = li
-			acs = append(acs, li.Accessory)
+
+			accessories = append(accessories, li.Accessory)
 		}
 	}
 
@@ -677,7 +683,7 @@ func (app *Application) build(ds []*natureremo.Device, as []*natureremo.Applianc
 	config := hc.Config{
 		Pin: os.Getenv("PIN"),
 	}
-	transport, err := hc.NewIPTransport(config, br.Accessory, acs...)
+	transport, err := hc.NewIPTransport(config, br.Accessory, accessories...)
 	if err != nil {
 		return err
 	}
@@ -692,27 +698,27 @@ func (app *Application) build(ds []*natureremo.Device, as []*natureremo.Applianc
 }
 
 func (app *Application) update(ds []*natureremo.Device, as []*natureremo.Appliance) {
-	devm := make(map[string]*natureremo.Device, len(ds))
+	devices := make(map[string]*natureremo.Device, len(ds))
 
 	for _, d := range ds {
+		devices[d.ID] = d
+
 		app.remos[d.ID].Update(d)
-		devm[d.ID] = d
 	}
 
 	for _, a := range as {
 		if ac, ok := app.accessories[a.ID]; ok {
-			ac.Update(devm[a.Device.ID], a)
+			ac.Update(devices[a.Device.ID], a)
 		}
 	}
 }
 
 func (app *Application) getAid(id string) uint64 {
-	aid, ok := app.aids[id]
-	if ok {
+	if aid, ok := app.aids[id]; ok {
 		return aid
 	}
 
-	aid = uint64(len(app.aids) + 1)
+	aid := uint64(len(app.aids) + 1)
 	app.aids[id] = aid
 
 	return aid
