@@ -45,10 +45,6 @@ func NewBridge(aid uint64, u *natureremo.User) *Bridge {
 	return &br
 }
 
-type RemoUpdater interface {
-	Update(d *natureremo.Device)
-}
-
 type Remo struct {
 	*accessory.Accessory
 	temperatureSensor *service.TemperatureSensor
@@ -163,7 +159,7 @@ func (re *Remo) currentAmbientLightLevel() (float64, bool) {
 	return 0.0, false
 }
 
-type AccessoryUpdater interface {
+type Updater interface {
 	Update(d *natureremo.Device, a *natureremo.Appliance)
 }
 
@@ -454,7 +450,7 @@ func (ai *AirCon) temperature(t float64) (string, bool) {
 	return "", false
 }
 
-type lightAppliance struct {
+type Light struct {
 	*accessory.Accessory
 	lightbulb *service.Lightbulb
 	client    *natureremo.Client
@@ -463,54 +459,54 @@ type lightAppliance struct {
 	appliance *natureremo.Appliance
 }
 
-func newLightAppliance(id uint64, cli *natureremo.Client, ctx context.Context, dev *natureremo.Device, ali *natureremo.Appliance) *lightAppliance {
-	lig := lightAppliance{}
-	lig.client = cli
-	lig.context = ctx
-	lig.device = dev
-	lig.appliance = ali
-
-	lig.Accessory = accessory.New(
+func NewLight(aid uint64, client *natureremo.Client, ctx context.Context, d *natureremo.Device, a *natureremo.Appliance) *Light {
+	li := Light{}
+	li.Accessory = accessory.New(
 		accessory.Info{
-			Name:         lig.appliance.Nickname,
-			Manufacturer: lig.appliance.Model.Manufacturer,
-			Model:        lig.appliance.Model.Name,
-			ID:           id,
+			Name:         a.Nickname,
+			Manufacturer: a.Model.Manufacturer,
+			Model:        a.Model.Name,
+			ID:           aid,
 		},
 		accessory.TypeLightbulb,
 	)
 
-	lig.lightbulb = service.NewLightbulb()
-	if on, ok := lig.getOn(); ok {
-		lig.lightbulb.On.SetValue(on)
-	}
-	lig.lightbulb.On.OnValueRemoteUpdate(lig.changeOn)
-	lig.AddService(lig.lightbulb.Service)
+	li.client = client
+	li.context = ctx
+	li.device = d
+	li.appliance = a
 
-	return &lig
+	li.lightbulb = service.NewLightbulb()
+	if o, ok := li.on(); ok {
+		li.lightbulb.On.SetValue(o)
+	}
+	li.lightbulb.On.OnValueRemoteUpdate(li.updateOn)
+	li.AddService(li.lightbulb.Service)
+
+	return &li
 }
 
-func (lig *lightAppliance) Update(dev *natureremo.Device, ali *natureremo.Appliance) {
-	lig.device = dev
-	lig.appliance = ali
+func (li *Light) Update(d *natureremo.Device, a *natureremo.Appliance) {
+	li.device = d
+	li.appliance = a
 
-	if on, ok := lig.getOn(); ok {
-		lig.lightbulb.On.SetValue(on)
+	if o, ok := li.on(); ok {
+		li.lightbulb.On.SetValue(o)
 	}
 }
 
-func (lig *lightAppliance) changeOn(on bool) {
-	ctx, cancel := context.WithTimeout(lig.context, timeout)
+func (li *Light) updateOn(o bool) {
+	ctx, cancel := context.WithTimeout(li.context, timeout)
 	defer cancel()
 
-	_, err := lig.client.ApplianceService.SendLightSignal(ctx, lig.appliance, lig.convertPower(on))
+	_, err := li.client.ApplianceService.SendLightSignal(ctx, li.appliance, li.power(o))
 	if err != nil {
 		log.Print(err)
 	}
 }
 
-func (lig *lightAppliance) getOn() (bool, bool) {
-	switch lig.appliance.Light.State.Power {
+func (li *Light) on() (bool, bool) {
+	switch li.appliance.Light.State.Power {
 	case "on":
 		return true, true
 	case "off":
@@ -520,42 +516,42 @@ func (lig *lightAppliance) getOn() (bool, bool) {
 	return false, false
 }
 
-func (lig *lightAppliance) convertPower(on bool) string {
-	if on {
+func (li *Light) power(o bool) string {
+	if o {
 		return "on"
 	} else {
 		return "off"
 	}
 }
 
-type application struct {
+type Application struct {
 	client     *natureremo.Client
 	context    context.Context
-	user       *natureremo.User
 	transport  hc.Transport
-	devices    map[string]RemoUpdater
-	appliances map[string]AccessoryUpdater
+	user       *natureremo.User
+	devices    map[string]*Remo
+	appliances map[string]Updater
 	aids       map[string]uint64
 }
 
-func newApplication(ctx context.Context) *application {
-	app := application{}
+func NewApplication(ctx context.Context) *Application {
+	app := Application{}
 	app.client = natureremo.NewClient(os.Getenv("ACCESS_TOKEN"))
 	app.context = ctx
-	app.devices = make(map[string]RemoUpdater)
-	app.appliances = make(map[string]AccessoryUpdater)
+	app.devices = make(map[string]*Remo)
+	app.appliances = make(map[string]Updater)
 	app.aids = make(map[string]uint64)
 	return &app
 }
 
-func (app *application) stop() {
+func (app *Application) Stop() {
 	if app.transport != nil {
 		<-app.transport.Stop()
 		app.transport = nil
 	}
 }
 
-func (app *application) update() error {
+func (app *Application) Update() error {
 	devs, alis, err := app.getAll()
 	if err != nil {
 		return err
@@ -573,7 +569,7 @@ func (app *application) update() error {
 	return nil
 }
 
-func (app *application) getAll() ([]*natureremo.Device, []*natureremo.Appliance, error) {
+func (app *Application) getAll() ([]*natureremo.Device, []*natureremo.Appliance, error) {
 	if app.user == nil {
 		uctx, cancel := context.WithTimeout(app.context, timeout)
 		defer cancel()
@@ -604,7 +600,7 @@ func (app *application) getAll() ([]*natureremo.Device, []*natureremo.Appliance,
 	return devs, alis, nil
 }
 
-func (app *application) wasChanged(devs []*natureremo.Device, alis []*natureremo.Appliance) bool {
+func (app *Application) wasChanged(devs []*natureremo.Device, alis []*natureremo.Appliance) bool {
 	ealis := make([]*natureremo.Appliance, 0, len(alis))
 	for _, ali := range alis {
 		switch ali.Type {
@@ -634,7 +630,7 @@ func (app *application) wasChanged(devs []*natureremo.Device, alis []*natureremo
 	return false
 }
 
-func (app *application) build(devs []*natureremo.Device, alis []*natureremo.Appliance) error {
+func (app *Application) build(devs []*natureremo.Device, alis []*natureremo.Appliance) error {
 	err := app.loadAids()
 	if err != nil {
 		return err
@@ -645,8 +641,8 @@ func (app *application) build(devs []*natureremo.Device, alis []*natureremo.Appl
 		app.transport = nil
 	}
 
-	app.devices = make(map[string]RemoUpdater, len(devs))
-	app.appliances = make(map[string]AccessoryUpdater, len(alis))
+	app.devices = make(map[string]*Remo, len(devs))
+	app.appliances = make(map[string]Updater, len(alis))
 
 	bri := NewBridge(app.getAid(app.user.ID), app.user)
 	accs := make([]*accessory.Accessory, 0, len(app.devices)+len(app.appliances))
@@ -666,9 +662,9 @@ func (app *application) build(devs []*natureremo.Device, alis []*natureremo.Appl
 			app.appliances[ali.ID] = ai
 			accs = append(accs, ai.Accessory)
 		case natureremo.ApplianceTypeLight:
-			lig := newLightAppliance(app.getAid(ali.ID), app.client, app.context, devm[ali.Device.ID], ali)
-			app.appliances[ali.ID] = lig
-			accs = append(accs, lig.Accessory)
+			li := NewLight(app.getAid(ali.ID), app.client, app.context, devm[ali.Device.ID], ali)
+			app.appliances[ali.ID] = li
+			accs = append(accs, li.Accessory)
 		}
 	}
 
@@ -691,7 +687,7 @@ func (app *application) build(devs []*natureremo.Device, alis []*natureremo.Appl
 	return nil
 }
 
-func (app *application) apply(devs []*natureremo.Device, alis []*natureremo.Appliance) {
+func (app *Application) apply(devs []*natureremo.Device, alis []*natureremo.Appliance) {
 	devm := make(map[string]*natureremo.Device, len(devs))
 
 	for _, dev := range devs {
@@ -706,7 +702,7 @@ func (app *application) apply(devs []*natureremo.Device, alis []*natureremo.Appl
 	}
 }
 
-func (app *application) getAid(id string) uint64 {
+func (app *Application) getAid(id string) uint64 {
 	aid, ok := app.aids[id]
 	if ok {
 		return aid
@@ -717,7 +713,7 @@ func (app *application) getAid(id string) uint64 {
 	return aid
 }
 
-func (app *application) saveAids() error {
+func (app *Application) saveAids() error {
 	j, err := json.Marshal(app.aids)
 	if err != nil {
 		return err
@@ -731,7 +727,7 @@ func (app *application) saveAids() error {
 	return nil
 }
 
-func (app *application) loadAids() error {
+func (app *Application) loadAids() error {
 	bs, err := ioutil.ReadFile(filepath.Join(os.Getenv("DATA_DIRECTORY"), "aids.json"))
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -750,10 +746,10 @@ func (app *application) loadAids() error {
 }
 
 func mainHandler(ctx context.Context) {
-	app := newApplication(ctx)
-	defer app.stop()
+	app := NewApplication(ctx)
+	defer app.Stop()
 
-	err := app.update()
+	err := app.Update()
 	if err != nil {
 		log.Print(err)
 	}
@@ -762,7 +758,7 @@ func mainHandler(ctx context.Context) {
 	for {
 		select {
 		case <-tkr.C:
-			err := app.update()
+			err := app.Update()
 			if err != nil {
 				log.Print(err)
 			}
