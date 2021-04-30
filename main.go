@@ -71,6 +71,7 @@ func NewRemo(aid uint64, client *natureremo.Client, ctx context.Context, d *natu
 		},
 		accessory.TypeSensor,
 	)
+
 	re.context = ctx
 	re.client = client
 	re.device = d
@@ -162,11 +163,11 @@ func (re *Remo) currentAmbientLightLevel() (float64, bool) {
 	return 0.0, false
 }
 
-type applianceUpdater interface {
-	update(d *natureremo.Device, a *natureremo.Appliance)
+type AccessoryUpdater interface {
+	Update(d *natureremo.Device, a *natureremo.Appliance)
 }
 
-type airConAppliance struct {
+type AirCon struct {
 	*accessory.Accessory
 	thermostat *service.Thermostat
 	client     *natureremo.Client
@@ -175,122 +176,125 @@ type airConAppliance struct {
 	appliance  *natureremo.Appliance
 }
 
-func newAirConAppliance(id uint64, cli *natureremo.Client, ctx context.Context, dev *natureremo.Device, ali *natureremo.Appliance) *airConAppliance {
-	air := airConAppliance{}
-	air.client = cli
-	air.context = ctx
-	air.device = dev
-	air.appliance = ali
-
-	air.Accessory = accessory.New(
+func NewAirCon(aid uint64, client *natureremo.Client, ctx context.Context, d *natureremo.Device, a *natureremo.Appliance) *AirCon {
+	ai := AirCon{}
+	ai.Accessory = accessory.New(
 		accessory.Info{
-			Name:         air.appliance.Nickname,
-			Manufacturer: air.appliance.Model.Manufacturer,
-			Model:        air.appliance.Model.Name,
-			ID:           id,
+			Name:         a.Nickname,
+			Manufacturer: a.Model.Manufacturer,
+			Model:        a.Model.Name,
+			ID:           aid,
 		},
 		accessory.TypeAirConditioner,
 	)
 
-	air.thermostat = service.NewThermostat()
-	if sta, ok := air.getCurrentHeatingCoolingState(); ok {
-		air.thermostat.CurrentHeatingCoolingState.SetValue(sta)
+	ai.client = client
+	ai.context = ctx
+	ai.device = d
+	ai.appliance = a
+
+	ai.thermostat = service.NewThermostat()
+	if s, ok := ai.currentHeatingCoolingState(); ok {
+		ai.thermostat.CurrentHeatingCoolingState.SetValue(s)
 	}
 
-	if sta, ok := air.getTargetHeatingCoolingState(); ok {
-		air.thermostat.TargetHeatingCoolingState.SetValue(sta)
+	if s, ok := ai.targetHeatingCoolingState(); ok {
+		ai.thermostat.TargetHeatingCoolingState.SetValue(s)
 	}
-	air.thermostat.TargetHeatingCoolingState.SetMaxValue(air.getTargetHeatingCoolingStateMax())
-	air.thermostat.TargetHeatingCoolingState.OnValueRemoteUpdate(air.changeTargetHeatingCoolingState)
+	ai.thermostat.TargetHeatingCoolingState.SetMaxValue(ai.targetHeatingCoolingStateMax())
+	ai.thermostat.TargetHeatingCoolingState.OnValueRemoteUpdate(ai.updateTargetHeatingCoolingState)
 
-	if tmp, ok := air.getCurrentTemperature(); ok {
-		air.thermostat.CurrentTemperature.SetValue(tmp)
+	if t, ok := ai.currentTemperature(); ok {
+		ai.thermostat.CurrentTemperature.SetValue(t)
 	}
 
-	if tmp, ok := air.getTargetTemperature(); ok {
-		air.thermostat.TargetTemperature.SetValue(tmp)
+	if t, ok := ai.targetTemperature(); ok {
+		ai.thermostat.TargetTemperature.SetValue(t)
 	}
-	min, max, stp := air.getTargetTemperatureMinAndMaxAndStep()
-	air.thermostat.TargetTemperature.SetMinValue(min)
-	air.thermostat.TargetTemperature.SetMaxValue(max)
-	air.thermostat.TargetTemperature.SetStepValue(stp)
-	air.thermostat.TargetTemperature.OnValueRemoteUpdate(air.changeTargetTemperature)
+	min, max, step := ai.targetTemperatureProps()
+	ai.thermostat.TargetTemperature.SetMinValue(min)
+	ai.thermostat.TargetTemperature.SetMaxValue(max)
+	ai.thermostat.TargetTemperature.SetStepValue(step)
+	ai.thermostat.TargetTemperature.OnValueRemoteUpdate(ai.updateTargetTemperature)
 
-	if uni, ok := air.getTemperatureDisplayUnits(); ok {
-		air.thermostat.TemperatureDisplayUnits.SetValue(uni)
+	if unit, ok := ai.temperatureDisplayUnits(); ok {
+		ai.thermostat.TemperatureDisplayUnits.SetValue(unit)
 	}
-	air.thermostat.TemperatureDisplayUnits.OnValueRemoteUpdate(air.changeTemperatureDisplayUnits)
-	air.AddService(air.thermostat.Service)
+	ai.thermostat.TemperatureDisplayUnits.OnValueRemoteUpdate(ai.updateTemperatureDisplayUnits)
+	ai.AddService(ai.thermostat.Service)
 
-	return &air
+	return &ai
 }
 
-func (air *airConAppliance) update(dev *natureremo.Device, ali *natureremo.Appliance) {
-	air.device = dev
-	air.appliance = ali
+func (ai *AirCon) Update(d *natureremo.Device, a *natureremo.Appliance) {
+	ai.device = d
+	ai.appliance = a
 
-	if sta, ok := air.getCurrentHeatingCoolingState(); ok {
-		air.thermostat.CurrentHeatingCoolingState.SetValue(sta)
+	if s, ok := ai.currentHeatingCoolingState(); ok {
+		ai.thermostat.CurrentHeatingCoolingState.SetValue(s)
 	}
-	if sta, ok := air.getTargetHeatingCoolingState(); ok {
-		air.thermostat.TargetHeatingCoolingState.SetValue(sta)
+	if s, ok := ai.targetHeatingCoolingState(); ok {
+		ai.thermostat.TargetHeatingCoolingState.SetValue(s)
 	}
-	if tmp, ok := air.getCurrentTemperature(); ok {
-		air.thermostat.CurrentTemperature.SetValue(tmp)
+	if t, ok := ai.currentTemperature(); ok {
+		ai.thermostat.CurrentTemperature.SetValue(t)
 	}
-	if tmp, ok := air.getTargetTemperature(); ok {
-		air.thermostat.TargetTemperature.SetValue(tmp)
+	if t, ok := ai.targetTemperature(); ok {
+		ai.thermostat.TargetTemperature.SetValue(t)
 	}
 }
 
-func (air *airConAppliance) changeTargetHeatingCoolingState(sta int) {
-	if mod, but, ok := air.convertOperationModeAndButton(sta); ok {
-		ctx, cancel := context.WithTimeout(air.context, timeout)
+func (ai *AirCon) updateTargetHeatingCoolingState(s int) {
+	if mode, button, ok := ai.operationModeAndButton(s); ok {
+		ctx, cancel := context.WithTimeout(ai.context, timeout)
 		defer cancel()
 
-		stg := natureremo.AirConSettings{OperationMode: mod, Button: but}
-		err := air.client.ApplianceService.UpdateAirConSettings(ctx, air.appliance, &stg)
+		settings := natureremo.AirConSettings{
+			OperationMode: mode,
+			Button:        button,
+		}
+		err := ai.client.ApplianceService.UpdateAirConSettings(ctx, ai.appliance, &settings)
 		if err != nil {
 			log.Print(err)
 		}
 	}
 }
 
-func (air *airConAppliance) changeTargetTemperature(tmp float64) {
-	if tmp, ok := air.convertTemperature(tmp); ok {
-		ctx, cancel := context.WithTimeout(air.context, timeout)
+func (ai *AirCon) updateTargetTemperature(t float64) {
+	if t, ok := ai.temperature(t); ok {
+		ctx, cancel := context.WithTimeout(ai.context, timeout)
 		defer cancel()
 
-		stg := natureremo.AirConSettings{Temperature: tmp}
-		err := air.client.ApplianceService.UpdateAirConSettings(ctx, air.appliance, &stg)
+		settings := natureremo.AirConSettings{
+			Temperature: t,
+		}
+		err := ai.client.ApplianceService.UpdateAirConSettings(ctx, ai.appliance, &settings)
 		if err != nil {
 			log.Print(err)
 		}
 	}
 }
 
-func (air *airConAppliance) changeTemperatureDisplayUnits(uni int) {
-	// エアコンの表示単位を変更する方法は無いので書き込みには対応できない。
+func (ai *AirCon) updateTemperatureDisplayUnits(units int) {
+	// There is no way to change the display unit of the air conditioner.
 }
 
-func (air *airConAppliance) getCurrentHeatingCoolingState() (int, bool) {
-	// エアコン本体の現在のモードを取得する方法は無いのでリモコンに対する最後の操作を現在のモードと見做す。
-	switch air.appliance.AirConSettings.Button {
+func (ai *AirCon) currentHeatingCoolingState() (int, bool) {
+	// Since there is no way to get the current mode of the air conditioner itself,
+	// the last operation of the remote control is regarded as the current mode.
+	switch ai.appliance.AirConSettings.Button {
 	case natureremo.ButtonPowerOn:
-		switch air.appliance.AirConSettings.OperationMode {
+		switch ai.appliance.AirConSettings.OperationMode {
 		case natureremo.OperationModeAuto:
-			// モードが自動の場合は取得できない。
-			return 0, false
+			return 0, false // Auto mode is not supported.
 		case natureremo.OperationModeCool:
 			return 2, true
 		case natureremo.OperationModeWarm:
 			return 1, true
 		case natureremo.OperationModeDry:
-			// モードが除湿の場合は取得できない。
-			return 0, false
+			return 0, false // Dry mode is not supported.
 		case natureremo.OperationModeBlow:
-			// モードが送風の場合は取得できない。
-			return 0, false
+			return 0, false // Blow mode is not supported.
 		}
 	case natureremo.ButtonPowerOff:
 		return 0, true
@@ -299,23 +303,20 @@ func (air *airConAppliance) getCurrentHeatingCoolingState() (int, bool) {
 	return 0, false
 }
 
-func (air *airConAppliance) getTargetHeatingCoolingState() (int, bool) {
-	switch air.appliance.AirConSettings.Button {
+func (ai *AirCon) targetHeatingCoolingState() (int, bool) {
+	switch ai.appliance.AirConSettings.Button {
 	case natureremo.ButtonPowerOn:
-		switch air.appliance.AirConSettings.OperationMode {
+		switch ai.appliance.AirConSettings.OperationMode {
 		case natureremo.OperationModeAuto:
-			// モードが自動の場合は取得できない。
-			return 0, false
+			return 0, false // Auto mode is not supported.
 		case natureremo.OperationModeCool:
 			return 2, true
 		case natureremo.OperationModeWarm:
 			return 1, true
 		case natureremo.OperationModeDry:
-			// モードが除湿の場合は取得できない。
-			return 0, false
+			return 0, false // Dry mode is not supported.
 		case natureremo.OperationModeBlow:
-			// モードが送風の場合は取得できない。
-			return 0, false
+			return 0, false // Blow mode is not supported.
 		}
 	case natureremo.ButtonPowerOff:
 		return 0, true
@@ -323,62 +324,63 @@ func (air *airConAppliance) getTargetHeatingCoolingState() (int, bool) {
 	return 0, false
 }
 
-func (air *airConAppliance) getTargetHeatingCoolingStateMax() int {
-	// エアコンの自動モードには温度を相対値で指定する必要があるので操作範囲から除外する。
+func (ai *AirCon) targetHeatingCoolingStateMax() int {
+	// Disable the automatic mode of the air conditioner
+	// because it requires the temperature to be specified as a relative value.
 	return 2
 }
 
-func (air *airConAppliance) getCurrentTemperature() (float64, bool) {
-	// エアコン本体の温度計の値を取得する方法は無いのでNatureRemoの温度計の値をエアコンの温度と見做す。
-	if evt, ok := air.device.NewestEvents[natureremo.SensorTypeTemperature]; ok {
-		tmp := evt.Value
+func (ai *AirCon) currentTemperature() (float64, bool) {
+	// There is no way to get the thermometer value of the air conditioner itself,
+	// so the temperature in NatureRemo is considered to be the temperature of the air conditioner.
+	if e, ok := ai.device.NewestEvents[natureremo.SensorTypeTemperature]; ok {
+		t := e.Value
 
-		if tmp < 0.0 || 100.0 < tmp {
+		if t < 0.0 || 100.0 < t {
 			return 0.0, false
 		}
-
-		return math.Round(tmp*10.0) / 10.0, true
+		return math.Round(t*10.0) / 10.0, true
 	}
 
 	return 0.0, false
 }
 
-func (air *airConAppliance) getTargetTemperature() (float64, bool) {
-	tmp, err := strconv.ParseFloat(air.appliance.AirConSettings.Temperature, 64)
+func (ai *AirCon) targetTemperature() (float64, bool) {
+	t, err := strconv.ParseFloat(ai.appliance.AirConSettings.Temperature, 64)
 	if err != nil {
 		return 0.0, false
 	}
 
-	if tmp < 10.0 || 38.0 < tmp {
+	if t < 10.0 || 38.0 < t {
 		return 0.0, false
 	}
 
-	return math.Round(tmp*10.0) / 10.0, true
+	return math.Round(t*10.0) / 10.0, true
 }
 
-func (air *airConAppliance) getTargetTemperatureMinAndMaxAndStep() (float64, float64, float64) {
+func (ai *AirCon) targetTemperatureProps() (float64, float64, float64) {
 	min := 100.0
 	max := 0.0
-	stp := 1.0
+	step := 1.0
 
-	for _, mod := range []natureremo.OperationMode{natureremo.OperationModeCool, natureremo.OperationModeWarm} {
-		if rng, ok := air.appliance.AirCon.Range.Modes[mod]; ok {
-			ptmp := 0.0
-			for i, v := range rng.Temperature {
-				tmp, err := strconv.ParseFloat(v, 64)
+	for _, mode := range []natureremo.OperationMode{natureremo.OperationModeCool, natureremo.OperationModeWarm} {
+		if m, ok := ai.appliance.AirCon.Range.Modes[mode]; ok {
+			prev := 0.0
+			for i, value := range m.Temperature {
+				curr, err := strconv.ParseFloat(value, 64)
 				if err != nil {
 					continue
 				}
 
-				min = math.Min(tmp, min)
-				max = math.Max(tmp, max)
+				min = math.Min(curr, min)
+				max = math.Max(curr, max)
 
 				if i > 0 {
-					if d := tmp - ptmp; d < stp {
-						stp = d
+					if diff := curr - prev; diff < step {
+						step = diff
 					}
 				}
-				ptmp = tmp
+				prev = curr
 			}
 		}
 	}
@@ -387,61 +389,64 @@ func (air *airConAppliance) getTargetTemperatureMinAndMaxAndStep() (float64, flo
 	max = math.Min(38.0, max)
 
 	// TODO: 下限を10.0よりも大きく設定するとiOSやmacOSのHome.appがフリーズする。
-	return 10.0, max, stp
+	min = 10.0
+
+	return min, max, step
 }
 
-func (air *airConAppliance) getTemperatureDisplayUnits() (int, bool) {
-	switch air.appliance.AirCon.TemperatureUnit {
+func (ai *AirCon) temperatureDisplayUnits() (int, bool) {
+	switch ai.appliance.AirCon.TemperatureUnit {
 	case natureremo.TemperatureUnitAuto:
-		// 温度の単位が自動の場合は取得できない。
-		return 0, false
+		return 0, false // If the temperature unit is automatic, it is not supported.
 	case natureremo.TemperatureUnitFahrenheit:
 		return 1, true
 	case natureremo.TemperatureUnitCelsius:
 		return 0, true
 	}
+
 	return 0, false
 }
 
-func (air *airConAppliance) convertOperationModeAndButton(sta int) (natureremo.OperationMode, natureremo.Button, bool) {
-	switch sta {
+func (ai *AirCon) operationModeAndButton(s int) (natureremo.OperationMode, natureremo.Button, bool) {
+	switch s {
 	case 0:
 		return "", natureremo.ButtonPowerOff, true
 	case 1:
-		if _, ok := air.appliance.AirCon.Range.Modes[natureremo.OperationModeWarm]; ok {
+		if _, ok := ai.appliance.AirCon.Range.Modes[natureremo.OperationModeWarm]; ok {
 			return natureremo.OperationModeWarm, natureremo.ButtonPowerOn, true
 		}
 	case 2:
-		if _, ok := air.appliance.AirCon.Range.Modes[natureremo.OperationModeCool]; ok {
+		if _, ok := ai.appliance.AirCon.Range.Modes[natureremo.OperationModeCool]; ok {
 			return natureremo.OperationModeCool, natureremo.ButtonPowerOn, true
 		}
 	}
+
 	return "", "", false
 }
 
-func (air *airConAppliance) convertTemperature(tmp float64) (string, bool) {
-	var mod natureremo.OperationMode
+func (ai *AirCon) temperature(t float64) (string, bool) {
+	var mode natureremo.OperationMode
 
-	switch air.thermostat.TargetHeatingCoolingState.GetValue() {
+	switch ai.thermostat.TargetHeatingCoolingState.GetValue() {
 	case 0:
 		return "", false
 	case 1:
-		mod = natureremo.OperationModeWarm
+		mode = natureremo.OperationModeWarm
 	case 2:
-		mod = natureremo.OperationModeCool
+		mode = natureremo.OperationModeCool
 	default:
 		return "", false
 	}
 
-	if rng, ok := air.appliance.AirCon.Range.Modes[mod]; ok {
-		for _, v := range rng.Temperature {
-			rtmp, err := strconv.ParseFloat(v, 64)
+	if m, ok := ai.appliance.AirCon.Range.Modes[mode]; ok {
+		for _, value := range m.Temperature {
+			curr, err := strconv.ParseFloat(value, 64)
 			if err != nil {
 				continue
 			}
 
-			if rtmp == tmp {
-				return v, true
+			if curr == t {
+				return value, true
 			}
 		}
 	}
@@ -485,7 +490,7 @@ func newLightAppliance(id uint64, cli *natureremo.Client, ctx context.Context, d
 	return &lig
 }
 
-func (lig *lightAppliance) update(dev *natureremo.Device, ali *natureremo.Appliance) {
+func (lig *lightAppliance) Update(dev *natureremo.Device, ali *natureremo.Appliance) {
 	lig.device = dev
 	lig.appliance = ali
 
@@ -529,7 +534,7 @@ type application struct {
 	user       *natureremo.User
 	transport  hc.Transport
 	devices    map[string]RemoUpdater
-	appliances map[string]applianceUpdater
+	appliances map[string]AccessoryUpdater
 	aids       map[string]uint64
 }
 
@@ -538,7 +543,7 @@ func newApplication(ctx context.Context) *application {
 	app.client = natureremo.NewClient(os.Getenv("ACCESS_TOKEN"))
 	app.context = ctx
 	app.devices = make(map[string]RemoUpdater)
-	app.appliances = make(map[string]applianceUpdater)
+	app.appliances = make(map[string]AccessoryUpdater)
 	app.aids = make(map[string]uint64)
 	return &app
 }
@@ -641,7 +646,7 @@ func (app *application) build(devs []*natureremo.Device, alis []*natureremo.Appl
 	}
 
 	app.devices = make(map[string]RemoUpdater, len(devs))
-	app.appliances = make(map[string]applianceUpdater, len(alis))
+	app.appliances = make(map[string]AccessoryUpdater, len(alis))
 
 	bri := NewBridge(app.getAid(app.user.ID), app.user)
 	accs := make([]*accessory.Accessory, 0, len(app.devices)+len(app.appliances))
@@ -657,9 +662,9 @@ func (app *application) build(devs []*natureremo.Device, alis []*natureremo.Appl
 	for _, ali := range alis {
 		switch ali.Type {
 		case natureremo.ApplianceTypeAirCon:
-			air := newAirConAppliance(app.getAid(ali.ID), app.client, app.context, devm[ali.Device.ID], ali)
-			app.appliances[ali.ID] = air
-			accs = append(accs, air.Accessory)
+			ai := NewAirCon(app.getAid(ali.ID), app.client, app.context, devm[ali.Device.ID], ali)
+			app.appliances[ali.ID] = ai
+			accs = append(accs, ai.Accessory)
 		case natureremo.ApplianceTypeLight:
 			lig := newLightAppliance(app.getAid(ali.ID), app.client, app.context, devm[ali.Device.ID], ali)
 			app.appliances[ali.ID] = lig
@@ -696,7 +701,7 @@ func (app *application) apply(devs []*natureremo.Device, alis []*natureremo.Appl
 
 	for _, ali := range alis {
 		if aupd, ok := app.appliances[ali.ID]; ok {
-			aupd.update(devm[ali.Device.ID], ali)
+			aupd.Update(devm[ali.Device.ID], ali)
 		}
 	}
 }
