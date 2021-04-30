@@ -525,22 +525,22 @@ func (li *Light) power(o bool) string {
 }
 
 type Application struct {
-	client     *natureremo.Client
-	context    context.Context
-	transport  hc.Transport
-	user       *natureremo.User
-	devices    map[string]*Remo
-	appliances map[string]Updater
-	aids       map[string]uint64
+	client      *natureremo.Client
+	context     context.Context
+	transport   hc.Transport
+	user        *natureremo.User
+	remos       map[string]*Remo
+	accessories map[string]Updater
+	aids        map[string]uint64
 }
 
 func NewApplication(ctx context.Context) *Application {
 	app := Application{}
 	app.client = natureremo.NewClient(os.Getenv("ACCESS_TOKEN"))
 	app.context = ctx
-	app.devices = make(map[string]*Remo)
-	app.appliances = make(map[string]Updater)
-	app.aids = make(map[string]uint64)
+	app.remos = map[string]*Remo{}
+	app.accessories = map[string]Updater{}
+	app.aids = map[string]uint64{}
 	return &app
 }
 
@@ -552,18 +552,18 @@ func (app *Application) Stop() {
 }
 
 func (app *Application) Update() error {
-	devs, alis, err := app.getAll()
+	ds, as, err := app.getAll()
 	if err != nil {
 		return err
 	}
 
-	if app.wasChanged(devs, alis) {
-		err := app.build(devs, alis)
+	if app.wasChanged(ds, as) {
+		err := app.build(ds, as)
 		if err != nil {
 			return err
 		}
 	} else {
-		app.update(devs, alis)
+		app.update(ds, as)
 	}
 
 	return nil
@@ -571,58 +571,59 @@ func (app *Application) Update() error {
 
 func (app *Application) getAll() ([]*natureremo.Device, []*natureremo.Appliance, error) {
 	if app.user == nil {
-		uctx, cancel := context.WithTimeout(app.context, timeout)
+		ctx, cancel := context.WithTimeout(app.context, timeout)
 		defer cancel()
 
-		usr, err := app.client.UserService.Me(uctx)
+		u, err := app.client.UserService.Me(ctx)
 		if err != nil {
 			return nil, nil, err
 		}
-		app.user = usr
+
+		app.user = u
 	}
 
-	dctx, cancel := context.WithTimeout(app.context, timeout)
+	ctx, cancel := context.WithTimeout(app.context, timeout)
 	defer cancel()
 
-	devs, err := app.client.DeviceService.GetAll(dctx)
+	ds, err := app.client.DeviceService.GetAll(ctx)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	actx, cancel := context.WithTimeout(app.context, timeout)
+	ctx, cancel = context.WithTimeout(app.context, timeout)
 	defer cancel()
 
-	alis, err := app.client.ApplianceService.GetAll(actx)
+	as, err := app.client.ApplianceService.GetAll(ctx)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	return devs, alis, nil
+	return ds, as, nil
 }
 
-func (app *Application) wasChanged(devs []*natureremo.Device, alis []*natureremo.Appliance) bool {
-	ealis := make([]*natureremo.Appliance, 0, len(alis))
-	for _, ali := range alis {
-		switch ali.Type {
+func (app *Application) wasChanged(ds []*natureremo.Device, as []*natureremo.Appliance) bool {
+	ealis := make([]*natureremo.Appliance, 0, len(as))
+	for _, a := range as {
+		switch a.Type {
 		case natureremo.ApplianceTypeAirCon:
-			ealis = append(ealis, ali)
+			ealis = append(ealis, a)
 		case natureremo.ApplianceTypeLight:
-			ealis = append(ealis, ali)
+			ealis = append(ealis, a)
 		}
 	}
 
-	if len(app.devices) != len(devs) || len(app.appliances) != len(ealis) {
+	if len(app.remos) != len(ds) || len(app.accessories) != len(ealis) {
 		return true
 	}
 
-	for _, dev := range devs {
-		if _, ok := app.devices[dev.ID]; !ok {
+	for _, d := range ds {
+		if _, ok := app.remos[d.ID]; !ok {
 			return true
 		}
 	}
 
-	for _, ali := range ealis {
-		if _, ok := app.appliances[ali.ID]; !ok {
+	for _, a := range ealis {
+		if _, ok := app.accessories[a.ID]; !ok {
 			return true
 		}
 	}
@@ -630,7 +631,7 @@ func (app *Application) wasChanged(devs []*natureremo.Device, alis []*natureremo
 	return false
 }
 
-func (app *Application) build(devs []*natureremo.Device, alis []*natureremo.Appliance) error {
+func (app *Application) build(ds []*natureremo.Device, as []*natureremo.Appliance) error {
 	err := app.loadAids()
 	if err != nil {
 		return err
@@ -641,30 +642,30 @@ func (app *Application) build(devs []*natureremo.Device, alis []*natureremo.Appl
 		app.transport = nil
 	}
 
-	app.devices = make(map[string]*Remo, len(devs))
-	app.appliances = make(map[string]Updater, len(alis))
+	app.remos = make(map[string]*Remo, len(ds))
+	app.accessories = make(map[string]Updater, len(as))
 
-	bri := NewBridge(app.getAid(app.user.ID), app.user)
-	accs := make([]*accessory.Accessory, 0, len(app.devices)+len(app.appliances))
-	devm := make(map[string]*natureremo.Device, len(devs))
+	br := NewBridge(app.getAid(app.user.ID), app.user)
+	acs := make([]*accessory.Accessory, 0, len(app.remos)+len(app.accessories))
+	devm := make(map[string]*natureremo.Device, len(ds))
 
-	for _, dev := range devs {
-		re := NewRemo(app.getAid(dev.ID), app.client, app.context, dev)
-		app.devices[dev.ID] = re
-		accs = append(accs, re.Accessory)
-		devm[dev.ID] = dev
+	for _, d := range ds {
+		re := NewRemo(app.getAid(d.ID), app.client, app.context, d)
+		app.remos[d.ID] = re
+		acs = append(acs, re.Accessory)
+		devm[d.ID] = d
 	}
 
-	for _, ali := range alis {
-		switch ali.Type {
+	for _, a := range as {
+		switch a.Type {
 		case natureremo.ApplianceTypeAirCon:
-			ai := NewAirCon(app.getAid(ali.ID), app.client, app.context, devm[ali.Device.ID], ali)
-			app.appliances[ali.ID] = ai
-			accs = append(accs, ai.Accessory)
+			ai := NewAirCon(app.getAid(a.ID), app.client, app.context, devm[a.Device.ID], a)
+			app.accessories[a.ID] = ai
+			acs = append(acs, ai.Accessory)
 		case natureremo.ApplianceTypeLight:
-			li := NewLight(app.getAid(ali.ID), app.client, app.context, devm[ali.Device.ID], ali)
-			app.appliances[ali.ID] = li
-			accs = append(accs, li.Accessory)
+			li := NewLight(app.getAid(a.ID), app.client, app.context, devm[a.Device.ID], a)
+			app.accessories[a.ID] = li
+			acs = append(acs, li.Accessory)
 		}
 	}
 
@@ -673,13 +674,16 @@ func (app *Application) build(devs []*natureremo.Device, alis []*natureremo.Appl
 		return err
 	}
 
-	con := hc.Config{Pin: os.Getenv("PIN")}
-	tra, err := hc.NewIPTransport(con, bri.Accessory, accs...)
+	config := hc.Config{
+		Pin: os.Getenv("PIN"),
+	}
+	transport, err := hc.NewIPTransport(config, br.Accessory, acs...)
 	if err != nil {
 		return err
 	}
 
-	app.transport = tra
+	app.transport = transport
+
 	go func() {
 		app.transport.Start()
 	}()
@@ -687,17 +691,17 @@ func (app *Application) build(devs []*natureremo.Device, alis []*natureremo.Appl
 	return nil
 }
 
-func (app *Application) update(devs []*natureremo.Device, alis []*natureremo.Appliance) {
-	devm := make(map[string]*natureremo.Device, len(devs))
+func (app *Application) update(ds []*natureremo.Device, as []*natureremo.Appliance) {
+	devm := make(map[string]*natureremo.Device, len(ds))
 
-	for _, dev := range devs {
-		app.devices[dev.ID].Update(dev)
-		devm[dev.ID] = dev
+	for _, d := range ds {
+		app.remos[d.ID].Update(d)
+		devm[d.ID] = d
 	}
 
-	for _, ali := range alis {
-		if aupd, ok := app.appliances[ali.ID]; ok {
-			aupd.Update(devm[ali.Device.ID], ali)
+	for _, a := range as {
+		if ac, ok := app.accessories[a.ID]; ok {
+			ac.Update(devm[a.Device.ID], a)
 		}
 	}
 }
@@ -710,6 +714,7 @@ func (app *Application) getAid(id string) uint64 {
 
 	aid = uint64(len(app.aids) + 1)
 	app.aids[id] = aid
+
 	return aid
 }
 
