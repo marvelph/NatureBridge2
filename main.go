@@ -563,7 +563,7 @@ func (app *Application) Update() error {
 			return err
 		}
 	} else {
-		app.apply(devs, alis)
+		app.update(devs, alis)
 	}
 
 	return nil
@@ -687,7 +687,7 @@ func (app *Application) build(devs []*natureremo.Device, alis []*natureremo.Appl
 	return nil
 }
 
-func (app *Application) apply(devs []*natureremo.Device, alis []*natureremo.Appliance) {
+func (app *Application) update(devs []*natureremo.Device, alis []*natureremo.Appliance) {
 	devm := make(map[string]*natureremo.Device, len(devs))
 
 	for _, dev := range devs {
@@ -754,10 +754,12 @@ func mainHandler(ctx context.Context) {
 		log.Print(err)
 	}
 
-	tkr := time.NewTicker(interval)
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
 	for {
 		select {
-		case <-tkr.C:
+		case <-ticker.C:
 			err := app.Update()
 			if err != nil {
 				log.Print(err)
@@ -771,12 +773,14 @@ func mainHandler(ctx context.Context) {
 func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 
-	sig := make(chan os.Signal, 1)
-	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
-	defer signal.Stop(sig)
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, syscall.SIGINT, syscall.SIGTERM)
+	defer signal.Stop(c)
+
 	go func() {
 		defer cancel()
-		<-sig
+
+		<-c
 	}()
 
 	mainHandler(ctx)
