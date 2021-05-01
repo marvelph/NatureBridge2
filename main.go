@@ -544,7 +544,7 @@ func NewApplication(ctx context.Context) *Application {
 	return &app
 }
 
-func (app *Application) Stop() {
+func (app *Application) StopAndWait() {
 	if app.transport != nil {
 		<-app.transport.Stop()
 		app.transport = nil
@@ -765,7 +765,7 @@ func (app *Application) loadAids() error {
 
 func mainHandler(ctx context.Context) {
 	app := NewApplication(ctx)
-	defer app.Stop()
+	defer app.StopAndWait()
 
 	err := app.Update()
 	if err != nil {
