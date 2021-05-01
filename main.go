@@ -680,8 +680,15 @@ func (app *Application) build(ds []*natureremo.Device, as []*natureremo.Applianc
 		return err
 	}
 
+	p := filepath.Join(os.Getenv("DATA_DIRECTORY"), "hc")
+	err = os.MkdirAll(p, 0755)
+	if err != nil {
+		return err
+	}
+
 	config := hc.Config{
-		Pin: os.Getenv("PIN"),
+		StoragePath: p,
+		Pin:         os.Getenv("PIN"),
 	}
 	transport, err := hc.NewIPTransport(config, br.Accessory, accessories...)
 	if err != nil {
