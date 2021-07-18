@@ -86,7 +86,7 @@ func NewRemo(aid uint64, client *natureremo.Client, ctx context.Context, d *natu
 		re.AddService(re.humiditySensor.Service)
 	}
 
-	if _, ok := re.device.NewestEvents[natureremo.SensortypeIllumination]; ok {
+	if _, ok := re.device.NewestEvents[natureremo.SensorTypeIllumination]; ok {
 		re.lightSensor = service.NewLightSensor()
 		if l, ok := re.currentAmbientLightLevel(); ok {
 			re.lightSensor.CurrentAmbientLightLevel.SetValue(l)
@@ -146,7 +146,7 @@ func (re *Remo) currentRelativeHumidity() (float64, bool) {
 }
 
 func (re *Remo) currentAmbientLightLevel() (float64, bool) {
-	if e, ok := re.device.NewestEvents[natureremo.SensortypeIllumination]; ok {
+	if e, ok := re.device.NewestEvents[natureremo.SensorTypeIllumination]; ok {
 		l := e.Value
 
 		if l < 0.0001 || 100000.0 < l {
