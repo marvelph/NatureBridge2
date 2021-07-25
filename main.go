@@ -50,12 +50,10 @@ type Remo struct {
 	temperatureSensor *service.TemperatureSensor
 	humiditySensor    *service.HumiditySensor
 	lightSensor       *service.LightSensor
-	client            *natureremo.Client
-	context           context.Context
 	device            *natureremo.Device
 }
 
-func NewRemo(aid uint64, client *natureremo.Client, ctx context.Context, d *natureremo.Device) *Remo {
+func NewRemo(aid uint64, d *natureremo.Device) *Remo {
 	re := Remo{}
 	re.Accessory = accessory.New(
 		accessory.Info{
@@ -68,8 +66,6 @@ func NewRemo(aid uint64, client *natureremo.Client, ctx context.Context, d *natu
 		accessory.TypeSensor,
 	)
 
-	re.context = ctx
-	re.client = client
 	re.device = d
 
 	re.temperatureSensor = service.NewTemperatureSensor()
@@ -381,11 +377,10 @@ func (ai *AirCon) targetTemperatureProps() (float64, float64, float64) {
 		}
 	}
 
-	min = math.Max(10.0, min)
-	max = math.Min(38.0, max)
-
 	// TODO: 下限を10.0よりも大きく設定するとiOSやmacOSのHome.appがフリーズする。
+	// min = math.Max(10.0, min)
 	min = 10.0
+	max = math.Min(38.0, max)
 
 	return min, max, step
 }
@@ -654,7 +649,7 @@ func (app *Application) build(ds []*natureremo.Device, as []*natureremo.Applianc
 	for _, d := range ds {
 		devices[d.ID] = d
 
-		re := NewRemo(app.getAid(d.ID), app.client, app.context, d)
+		re := NewRemo(app.getAid(d.ID), d)
 		app.remos[d.ID] = re
 
 		accessories = append(accessories, re.Accessory)
